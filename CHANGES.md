@@ -1,5 +1,104 @@
 # VoiceType - Change Log
 
+## 2026-03-06 — Session 6: Prompt Fixes, Indicator Redesign, Commercial Product Decision
+
+### Context
+Continued from Session 5 (which fixed overlay architecture, re-implemented mic gain + mode cycling, rewrote hotkey system to use Right Alt). This session focused on prompt accuracy, indicator visual improvements, and the decision to make VoiceType a commercial subscription product.
+
+### Changes Made
+
+**Prompt Improvements** (`src/constants/modes.ts`, `src/services/llmService.ts`)
+- Completely rewrote BASE_RULES — now tells LLM it's a "speech-to-text post-processor" with clear context
+- Only removes true verbal fillers (um, uh, hmm, er, ah) — no longer removes legitimate words like "actually", "like", "right"
+- Removed em-dash ban (was causing unnecessary restructuring)
+- Clean mode: truly minimal now — only fixes punctuation, capitalization, transcription errors
+- Professional mode: specific about what to change vs preserve
+- Casual mode: clear about keeping conversational tone
+- Added `[Voice dictation transcription to clean up]:` wrapper to user message in processText()
+- Simplified rewriteText() system prompt — removed aggressive BASE_RULES, focused on applying the spoken instruction
+
+**Indicator White Box Fix** (`src/main.tsx`)
+- When running as indicator window, strips `document.documentElement` and `document.body` backgrounds to transparent
+- Clears body className to remove Tailwind bg classes from index.html
+- Eliminates the white box that appeared when the indicator was idle on Windows
+
+**Indicator Visual Redesign** (`src/components/FloatingIndicator.tsx`, `electron/main.ts`)
+- Window size increased from 220×44 to 300×56
+- Added SVG microphone icon with pulsing ring animation
+- Added 5 animated audio bars (CSS animation, not yet reactive to mic)
+- Larger mode badge (12px bold, bordered pill, still clickable to cycle)
+- Timer bumped to 14px mono, white color for better readability
+- Added "LIVE" badge with pulsing red dot on right side
+- Processing state: clean spinner + "Processing..." text
+- Deeper shadows and subtle inner highlight for depth
+- 16px border radius for softer pill shape
+
+### Business Decision
+- VoiceType will become a **commercial subscription product**
+- Pricing: **$19.95/month or $89/year** (undercutting competitor at $30/mo)
+- We provide API backend (users don't need their own keys)
+- Platform targets: Windows (current), Android (Play Store), eventually Mac/iOS
+- Infrastructure needed: API proxy, Supabase auth, Stripe subscriptions, auto-updater
+
+### Files Modified
+- `src/constants/modes.ts` — Rewrote BASE_RULES and all 3 mode descriptions
+- `src/services/llmService.ts` — Added context wrapper to processText(), simplified rewriteText()
+- `src/main.tsx` — Added transparent background for indicator window
+- `src/components/FloatingIndicator.tsx` — Complete visual redesign
+- `electron/main.ts` — Indicator window size 300×56
+- `PROJECT_STATUS.md` — Updated to current state with commercial roadmap
+- `TODO.md` — Reorganized with ship-blocker priorities
+- `IDEAS.md` — Added business model, multi-platform strategy, marketing ideas
+
+---
+
+## 2026-03-06 — Session 5: Architecture Fixes + Hotkey Rework + Indicator Overhaul
+
+### Context
+User said "Fix anything we have tagged to fix, then launch the app." Three tagged fixes from Session 4's revert were re-implemented properly.
+
+### Changes Made
+
+**Fix 1: Overlay Architecture** (`src/main.tsx`, `src/App.tsx`)
+- Moved indicator detection from App.tsx to main.tsx — separate component trees
+- Eliminates React hooks violation (early return before useEffect)
+- App.tsx is now a clean component with no indicator logic
+
+**Fix 2: Mic Gain Slider** (`src/types/index.ts`, `src/services/speechService.ts`, `src/components/SettingsView.tsx`, `src/components/MainView.tsx`)
+- Added `micGain: number` to Settings interface (0-200, percentage)
+- Added GainNode to audio chain: source → gain → analyser
+- Added `setMicGain()` method to SpeechService
+- Added slider UI (0-200%) in SettingsView Preferences section
+- Wired up gain application in MainView startRecordingInternal
+
+**Fix 3: Mode Cycling in Overlay** (`src/components/FloatingIndicator.tsx`)
+- Mode name in indicator is a clickable button that cycles through Clean/Professional/Casual
+- Persists mode change to settings file via IPC
+
+**Hotkey System Rework** (`electron/main.ts`, `src/components/SettingsView.tsx`)
+- Created full configurable hotkey system with KEY_NAME_TO_KEYCODE map
+- Default changed from Ctrl+Shift+Space to RightAlt
+- Supports single keys and modifier combos
+- SettingsView: changed from text input to dropdown (RightAlt, F2, F8, etc.)
+- update-hotkey IPC handler now functional (was previously a no-op)
+- Migration: auto-converts old Ctrl+Shift+Space to RightAlt
+
+**Indicator Window** (`src/components/FloatingIndicator.tsx`, `electron/main.ts`, `electron/preload.ts`, `src/types/index.ts`)
+- Added hideIndicator IPC method (sends 'hide-indicator' to main process)
+- FloatingIndicator returns null when idle + calls hideIndicator() to hide window
+- 3-second processing delay before hiding
+- Timer ref with proper cleanup to avoid race conditions
+
+### Files Created
+- None
+
+### Files Modified
+- `src/main.tsx`, `src/App.tsx`, `src/types/index.ts`, `src/services/speechService.ts`
+- `src/components/FloatingIndicator.tsx`, `src/components/SettingsView.tsx`, `src/components/MainView.tsx`
+- `electron/main.ts`, `electron/preload.ts`
+
+---
+
 ## 2026-03-01 — Session 4: Attempted Overlay Improvements → Full Revert
 
 ### What Was Attempted

@@ -1,7 +1,8 @@
-import { app, BrowserWindow, ipcMain, dialog, clipboard, globalShortcut, screen } from 'electron'
+import { app, BrowserWindow, ipcMain, dialog, clipboard, screen } from 'electron'
 import path from 'path'
 import fs from 'fs'
 import { exec } from 'child_process'
+import { uIOhook, UiohookKey } from 'uiohook-napi'
 
 const isDev = !app.isPackaged
 
@@ -41,7 +42,94 @@ function writeJsonFile(filename: string, data: any): void {
 }
 
 let mainWindow: BrowserWindow | null = null
-let overlayWindow: BrowserWindow | null = null
+let indicatorWindow: BrowserWindow | null = null
+
+// ---- Hotkey state tracking ----
+let ctrlDown = false
+let shiftDown = false
+let altDown = false
+let triggerKeyDown = false
+let lastTriggerPressTime = 0
+let isHoldRecording = false
+let isHandsFreeMode = false
+let hasLastCommittedText = false // Track if there's text available for rewrite
+
+const DOUBLE_TAP_WINDOW = 400 // ms
+
+// ---- Configurable hotkey system ----
+// Map friendly key names to uiohook keycodes
+const KEY_NAME_TO_KEYCODE: Record<string, number> = {
+  'Space': UiohookKey.Space,
+  'Insert': UiohookKey.Insert,
+  'Delete': UiohookKey.Delete,
+  'Home': UiohookKey.Home,
+  'End': UiohookKey.End,
+  'PageUp': UiohookKey.PageUp,
+  'PageDown': UiohookKey.PageDown,
+  'Pause': UiohookKey.Pause,
+  'ScrollLock': UiohookKey.ScrollLock,
+  'PrintScreen': UiohookKey.PrintScreen,
+  'F1': UiohookKey.F1,
+  'F2': UiohookKey.F2,
+  'F3': UiohookKey.F3,
+  'F4': UiohookKey.F4,
+  'F5': UiohookKey.F5,
+  'F6': UiohookKey.F6,
+  'F7': UiohookKey.F7,
+  'F8': UiohookKey.F8,
+  'F9': UiohookKey.F9,
+  'F10': UiohookKey.F10,
+  'F11': UiohookKey.F11,
+  'F12': UiohookKey.F12,
+  'RightAlt': UiohookKey.AltRight,
+  'RightCtrl': UiohookKey.CtrlRight,
+  'RightShift': UiohookKey.ShiftRight,
+}
+
+interface HotkeyConfig {
+  requireCtrl: boolean
+  requireShift: boolean
+  requireAlt: boolean
+  triggerKeycode: number
+}
+
+let activeHotkey: HotkeyConfig = {
+  requireCtrl: false,
+  requireShift: false,
+  requireAlt: false,
+  triggerKeycode: UiohookKey.AltRight, // Default: Right Alt
+}
+
+function parseHotkeyString(hotkey: string): HotkeyConfig {
+  const parts = hotkey.split('+').map(p => p.trim())
+  const config: HotkeyConfig = {
+    requireCtrl: false,
+    requireShift: false,
+    requireAlt: false,
+    triggerKeycode: UiohookKey.AltRight,
+  }
+
+  // Last part is the trigger key, everything before is modifiers
+  const triggerName = parts.pop() || 'RightAlt'
+  for (const mod of parts) {
+    const lower = mod.toLowerCase()
+    if (lower === 'ctrl' || lower === 'control') config.requireCtrl = true
+    else if (lower === 'shift') config.requireShift = true
+    else if (lower === 'alt') config.requireAlt = true
+  }
+
+  // Look up the trigger keycode
+  config.triggerKeycode = KEY_NAME_TO_KEYCODE[triggerName] ?? UiohookKey.AltRight
+
+  return config
+}
+
+function modifiersMatch(): boolean {
+  if (activeHotkey.requireCtrl && !ctrlDown) return false
+  if (activeHotkey.requireShift && !shiftDown) return false
+  if (activeHotkey.requireAlt && !altDown) return false
+  return true
+}
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -57,7 +145,7 @@ function createWindow() {
       nodeIntegration: false,
     },
     frame: true,
-    backgroundColor: '#fafbfc',
+    backgroundColor: '#0D0D1A',
     titleBarStyle: 'default',
   })
 
@@ -72,30 +160,31 @@ function createWindow() {
   })
 }
 
-function createOverlayWindow() {
-  if (overlayWindow && !overlayWindow.isDestroyed()) {
-    overlayWindow.show()
-    overlayWindow.focus()
+function createIndicatorWindow() {
+  if (indicatorWindow && !indicatorWindow.isDestroyed()) {
+    indicatorWindow.show()
     return
   }
 
   const primaryDisplay = screen.getPrimaryDisplay()
   const { width: screenW } = primaryDisplay.workAreaSize
-  const overlayW = 380
-  const overlayH = 220
+  const indicatorW = 300
+  const indicatorH = 56
 
-  overlayWindow = new BrowserWindow({
-    width: overlayW,
-    height: overlayH,
-    x: Math.round((screenW - overlayW) / 2),
-    y: 80,
+  indicatorWindow = new BrowserWindow({
+    width: indicatorW,
+    height: indicatorH,
+    x: Math.round((screenW - indicatorW) / 2),
+    y: 20,
     frame: false,
     alwaysOnTop: true,
     skipTaskbar: true,
     resizable: false,
     minimizable: false,
     maximizable: false,
-    backgroundColor: '#ffffff',
+    focusable: false,
+    transparent: true,
+    backgroundColor: '#00000000',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -104,49 +193,136 @@ function createOverlayWindow() {
   })
 
   if (isDev) {
-    overlayWindow.loadURL('http://localhost:5173/?overlay=true')
+    indicatorWindow.loadURL('http://localhost:5173/?indicator=true')
   } else {
-    overlayWindow.loadFile(path.join(__dirname, '../dist/index.html'), {
-      query: { overlay: 'true' }
+    indicatorWindow.loadFile(path.join(__dirname, '../dist/index.html'), {
+      query: { indicator: 'true' }
     })
   }
 
-  overlayWindow.on('closed', () => {
-    overlayWindow = null
+  indicatorWindow.on('closed', () => {
+    indicatorWindow = null
   })
 }
 
-function toggleOverlay() {
-  if (overlayWindow && !overlayWindow.isDestroyed() && overlayWindow.isVisible()) {
-    overlayWindow.close()
-    overlayWindow = null
+function showIndicator() {
+  if (!indicatorWindow || indicatorWindow.isDestroyed()) {
+    createIndicatorWindow()
   } else {
-    createOverlayWindow()
+    indicatorWindow.show()
   }
 }
 
-function registerHotkey(hotkey: string) {
-  globalShortcut.unregisterAll()
-  if (!hotkey) return
-
-  try {
-    const accelerator = hotkey.replace('Ctrl+', 'CommandOrControl+')
-    globalShortcut.register(accelerator, toggleOverlay)
-  } catch (e) {
-    console.error('Failed to register hotkey:', e)
+function hideIndicator() {
+  if (indicatorWindow && !indicatorWindow.isDestroyed()) {
+    indicatorWindow.hide()
   }
+}
+
+function sendToRenderer(channel: string, ...args: any[]) {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send(channel, ...args)
+  }
+}
+
+function sendToIndicator(channel: string, ...args: any[]) {
+  if (indicatorWindow && !indicatorWindow.isDestroyed()) {
+    indicatorWindow.webContents.send(channel, ...args)
+  }
+}
+
+// ---- uiohook-napi hotkey system ----
+// Behavior:
+//   HOLD the hotkey     → record while held, process + auto-type on release
+//   DOUBLE-TAP          → toggle hands-free mode (continuous recording)
+//   TAP during hands-free → stop recording and auto-type the result
+function setupHotkeySystem() {
+  // Load hotkey from settings
+  const settings = readJsonFile('settings.json')
+  const hotkeyStr = settings.hotkey || 'RightAlt'
+  activeHotkey = parseHotkeyString(hotkeyStr)
+  console.log(`[VoiceType] Hotkey set to: ${hotkeyStr} (keycode ${activeHotkey.triggerKeycode})`)
+
+  uIOhook.on('keydown', (e) => {
+    // Track modifier states (always, regardless of hotkey config)
+    if (e.keycode === UiohookKey.Ctrl || e.keycode === UiohookKey.CtrlRight) ctrlDown = true
+    if (e.keycode === UiohookKey.Shift || e.keycode === UiohookKey.ShiftRight) shiftDown = true
+    if (e.keycode === UiohookKey.Alt || e.keycode === UiohookKey.AltRight) altDown = true
+
+    // Check if trigger key pressed
+    if (e.keycode === activeHotkey.triggerKeycode) {
+      if (triggerKeyDown) return // Already down, ignore repeat
+      triggerKeyDown = true
+
+      // Check if required modifiers are held
+      if (!modifiersMatch()) return
+
+      const now = Date.now()
+      const timeSinceLastPress = now - lastTriggerPressTime
+      lastTriggerPressTime = now
+
+      if (timeSinceLastPress < DOUBLE_TAP_WINDOW) {
+        // Double-tap detected: toggle hands-free mode
+        if (isHandsFreeMode) {
+          // Stop hands-free recording
+          isHandsFreeMode = false
+          isHoldRecording = false
+          sendToRenderer('recording-command', 'stop')
+          sendToIndicator('recording-command', 'stop')
+        } else {
+          // Start hands-free recording
+          isHandsFreeMode = true
+          isHoldRecording = false
+          sendToRenderer('recording-command', 'start-handsfree')
+          showIndicator()
+          sendToIndicator('recording-command', 'start-handsfree')
+        }
+      } else if (!isHandsFreeMode) {
+        // Single press: start hold-to-record
+        isHoldRecording = true
+
+        // Check if we should enter rewrite mode
+        if (hasLastCommittedText) {
+          sendToRenderer('recording-command', 'start-rewrite')
+          showIndicator()
+          sendToIndicator('recording-command', 'start-rewrite')
+        } else {
+          sendToRenderer('recording-command', 'start')
+          showIndicator()
+          sendToIndicator('recording-command', 'start')
+        }
+      }
+    }
+  })
+
+  uIOhook.on('keyup', (e) => {
+    // Track modifier states
+    if (e.keycode === UiohookKey.Ctrl || e.keycode === UiohookKey.CtrlRight) ctrlDown = false
+    if (e.keycode === UiohookKey.Shift || e.keycode === UiohookKey.ShiftRight) shiftDown = false
+    if (e.keycode === UiohookKey.Alt || e.keycode === UiohookKey.AltRight) altDown = false
+
+    // Check if trigger key released
+    if (e.keycode === activeHotkey.triggerKeycode) {
+      triggerKeyDown = false
+
+      if (isHoldRecording && !isHandsFreeMode) {
+        // Release from hold-to-record: stop recording and process
+        isHoldRecording = false
+        sendToRenderer('recording-command', 'stop')
+        sendToIndicator('recording-command', 'stop')
+      }
+      // If in hands-free mode, keyup is ignored (recording continues until next tap)
+    }
+  })
+
+  uIOhook.start()
 }
 
 app.whenReady().then(() => {
   ensureUserDataDir()
   initializeDefaultData()
   createWindow()
-
-  // Register global hotkey from saved settings
-  const settings = readJsonFile('settings.json')
-  if (settings.hotkey) {
-    registerHotkey(settings.hotkey)
-  }
+  setupHotkeySystem()
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
@@ -158,7 +334,7 @@ app.on('window-all-closed', () => {
 })
 
 app.on('will-quit', () => {
-  globalShortcut.unregisterAll()
+  uIOhook.stop()
 })
 
 // Initialize default data files if they don't exist
@@ -169,79 +345,55 @@ function initializeDefaultData() {
       speechProvider: 'whisper',
       llmProvider: 'gemini',
       apiKeys: {},
-      activePlatform: 'ai-chat',
-      autoProcess: true,
+      currentModeIndex: 0,
+      customPrompts: {},
       fontSize: 16,
-      theme: 'light',
-      globalRules: 'Always remove filler words and verbal hesitations (um, uh, ah, er, like, you know, I mean, sort of, kind of). Remove dead air artifacts and false starts.',
-      hotkey: 'Ctrl+Shift+Space',
-      learningMode: false,
+      theme: 'dark',
+      micGain: 100,
+      hotkey: 'RightAlt',
     })
   } else {
-    // Migrate existing settings — add any missing fields
+    // Migrate existing settings to new format
     const settings = readJsonFile('settings.json')
     let changed = false
-    if (settings.globalRules === undefined || settings.globalRules === '') {
-      settings.globalRules = 'Always remove filler words and verbal hesitations (um, uh, ah, er, like, you know, I mean, sort of, kind of). Remove dead air artifacts and false starts.'
-      changed = true
-    }
-    if (settings.hotkey === undefined) {
-      settings.hotkey = 'Ctrl+Shift+Space'
-      changed = true
-    }
-    if (settings.learningMode === undefined) {
-      settings.learningMode = false
-      changed = true
-    }
-    if (changed) writeJsonFile('settings.json', settings)
-  }
 
-  // Default platform prompts
-  if (!fs.existsSync(getDataFilePath('platform-prompts.json'))) {
-    writeJsonFile('platform-prompts.json', {
-      'ai-chat': {
-        name: 'AI Chat',
-        icon: 'robot',
-        prompt: 'Clean up this dictated text for an AI chat. Extract the core intent and essential information, removing all filler, redundant phrases, and verbal tics. Present the result in concise Markdown to minimize token usage and character count. If the user changed their mind mid-sentence, output only the final intent. Return ONLY the streamlined text.',
-        enabled: true,
-      },
-      'text-message': {
-        name: 'Text Message',
-        icon: 'phone',
-        prompt: 'Clean up this dictated text for a text message so it appears naturally human-typed. Use standard capitalization for the start of sentences and pronouns. Remove all verbal filler and false starts. Do not use M-dashes or uncommon punctuation. If the input is short, keep it brief and do not over-edit. Return ONLY the cleaned text.',
-        enabled: true,
-      },
-      'professional-email': {
-        name: 'Professional Email',
-        icon: 'briefcase',
-        prompt: 'Transform this dictated speech into a clear, concise, and professional email. Fix grammar and remove all verbal tics or repetitive phrasing. Maintain a polished tone without using M-dashes or excessive punctuation. Organize the thoughts into a logical professional structure. Return ONLY the cleaned text.',
-        enabled: true,
-      },
-      'personal-email': {
-        name: 'Personal Email',
-        icon: 'envelope',
-        prompt: 'Clean up this dictated text for a personal email. Maintain a clear, friendly, and relaxed tone while fixing grammar and removing filler words. Preserve the user\'s personal voice and intent. Do not use M-dashes. Return ONLY the cleaned text.',
-        enabled: true,
-      },
-      'tiktok': {
-        name: 'TikTok',
-        icon: 'share',
-        prompt: 'Refine this dictated text into a TikTok-appropriate caption or script. Use a punchy hook and concise phrasing. Remove verbal fillers while keeping the energy high and the voice authentic. Adapt the flow to suit typical TikTok conventions, including emojis if suggested by the tone. Return ONLY the cleaned text.',
-        enabled: true,
-      },
-      'brain-dump': {
-        name: 'Brain Dump',
-        icon: 'clipboard',
-        prompt: 'Process this dictated Brain Dump into a coherent, organized concept. Synthesize rambling thoughts, verbal tics, and "gibberish" into a logical flow that makes sense. Remove all conversational artifacts and filler. Structure the output so the core idea or project is clear and actionable. Return ONLY the synthesized text.',
-        enabled: true,
-      },
-      'raw': {
-        name: 'Raw (No Processing)',
-        icon: 'type',
-        prompt: '',
-        enabled: true,
-      },
-    })
+    // Remove old fields
+    if ('activePlatform' in settings) {
+      delete settings.activePlatform
+      changed = true
+    }
+    if ('autoProcess' in settings) {
+      delete settings.autoProcess
+      changed = true
+    }
+    if ('globalRules' in settings) {
+      delete settings.globalRules
+      changed = true
+    }
+    if ('learningMode' in settings) {
+      delete settings.learningMode
+      changed = true
+    }
+
+    // Add new fields
+    if (settings.currentModeIndex === undefined) {
+      settings.currentModeIndex = 0
+      changed = true
+    }
+    if (settings.customPrompts === undefined) {
+      settings.customPrompts = {}
+      changed = true
+    }
+    if (settings.hotkey === undefined || settings.hotkey === 'Ctrl+Shift+Space') {
+      settings.hotkey = 'RightAlt'
+      changed = true
+    }
+    if (settings.micGain === undefined) {
+      settings.micGain = 100
+      changed = true
+    }
+
+    if (changed) writeJsonFile('settings.json', settings)
   }
 
   // Default dictionary
@@ -257,11 +409,6 @@ function initializeDefaultData() {
       patterns: [],
     })
   }
-
-  // Default tickets
-  if (!fs.existsSync(getDataFilePath('tickets.json'))) {
-    writeJsonFile('tickets.json', [])
-  }
 }
 
 // ---- IPC Handlers ----
@@ -270,13 +417,6 @@ function initializeDefaultData() {
 ipcMain.handle('get-settings', () => readJsonFile('settings.json'))
 ipcMain.handle('save-settings', (_, settings) => {
   writeJsonFile('settings.json', settings)
-  return true
-})
-
-// Platform prompts
-ipcMain.handle('get-platform-prompts', () => readJsonFile('platform-prompts.json'))
-ipcMain.handle('save-platform-prompts', (_, prompts) => {
-  writeJsonFile('platform-prompts.json', prompts)
   return true
 })
 
@@ -294,17 +434,10 @@ ipcMain.handle('save-learned-patterns', (_, patterns) => {
   return true
 })
 
-// Tickets
-ipcMain.handle('get-tickets', () => readJsonFile('tickets.json', []))
-ipcMain.handle('save-tickets', (_, tickets) => {
-  writeJsonFile('tickets.json', tickets)
-  return true
-})
-
 // Get user data path (for display in settings)
 ipcMain.handle('get-user-data-path', () => userDataPath)
 
-// Paste to external window
+// Paste to external window (from main window -- minimizes VoiceType)
 ipcMain.handle('paste-to-external', async (_, text: string) => {
   if (!mainWindow) return false
 
@@ -346,15 +479,16 @@ ipcMain.handle('paste-to-external', async (_, text: string) => {
   }
 })
 
-// Paste from overlay — hides overlay instead of minimizing main window
-ipcMain.handle('paste-from-overlay', async (_, text: string) => {
-  if (!overlayWindow) return false
-
+// Auto-type text to active field (from hotkey flow -- does NOT minimize/restore)
+ipcMain.handle('auto-type-text', async (_, text: string) => {
   try {
+    // 1. Copy text to clipboard
     clipboard.writeText(text)
-    overlayWindow.hide()
-    await new Promise(resolve => setTimeout(resolve, 300))
 
+    // 2. Brief delay for clipboard
+    await new Promise(resolve => setTimeout(resolve, 100))
+
+    // 3. Simulate Ctrl+V via PowerShell (VoiceType stays in background)
     await new Promise<void>((resolve, reject) => {
       exec(
         'powershell -Command "Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.SendKeys]::SendWait(\'^v\')"',
@@ -365,31 +499,31 @@ ipcMain.handle('paste-from-overlay', async (_, text: string) => {
       )
     })
 
-    // Show overlay again after pasting
-    await new Promise(resolve => setTimeout(resolve, 300))
-    if (overlayWindow && !overlayWindow.isDestroyed()) {
-      overlayWindow.show()
-    }
-
     return true
   } catch (error) {
-    console.error('Overlay paste failed:', error)
-    if (overlayWindow && !overlayWindow.isDestroyed()) {
-      overlayWindow.show()
-    }
+    console.error('Auto-type failed:', error)
     return false
   }
 })
 
-// Toggle overlay from renderer
-ipcMain.handle('toggle-overlay', () => {
-  toggleOverlay()
-  return true
+// Track whether there's committed text (for rewrite mode detection)
+ipcMain.on('has-committed-text', (_, hasText: boolean) => {
+  hasLastCommittedText = hasText
 })
 
-// Update global hotkey
+// Indicator visibility control from renderer
+ipcMain.on('hide-indicator', () => {
+  hideIndicator()
+})
+
+// Update hotkey — re-parse the new hotkey string so it takes effect immediately
 ipcMain.handle('update-hotkey', (_, hotkey: string) => {
-  registerHotkey(hotkey)
+  activeHotkey = parseHotkeyString(hotkey)
+  // Reset state to avoid stuck keys
+  triggerKeyDown = false
+  isHoldRecording = false
+  isHandsFreeMode = false
+  console.log(`[VoiceType] Hotkey updated to: ${hotkey} (keycode ${activeHotkey.triggerKeycode})`)
   return true
 })
 

@@ -1,35 +1,63 @@
 # VoiceType - Ideas Parking Lot
 
-## Future Features
-- Dark mode (theme setting exists in types but not implemented)
-- Configurable language for speech recognition (currently hardcoded to English)
-- Word count / character count display
-- Export transcription history to file
-- System tray mode (decided against for v1, but could revisit)
-- Auto-save drafts between sessions
-- Notification when transcription completes (useful in overlay/floating mode)
-- Voice command shortcuts ("new paragraph", "delete that", etc.)
-- Template system for common text patterns (email signatures, greetings)
-- Overlay window size/position memory (remember where user last placed it)
-- Overlay window custom hotkey (let user pick their own shortcut beyond Ctrl+Shift+Space)
-- Learning mode confidence threshold (only auto-add corrections above a certain confidence)
-- Learning mode undo/review queue (review recent auto-learned corrections before they become permanent)
+## Business Model
+- **Subscription:** $19.95/month or $89/year (competitor charges $30/mo or $100/yr)
+- **We provide the API backend** — users don't need their own keys
+- **API proxy server** routes through our Whisper/Gemini keys, tracks usage
+- **Estimated cost per active user:** $5-8/month (heavy), $2-3/month (light)
+- **Margin at $19.95/mo:** $12-15/user on heavy users, more on light users
+- **Margin at $89/yr ($7.42/mo):** Tighter but works for light-moderate users
 
-## Potential Improvements
-- Use the `diff` library (already a dependency) more actively for pattern extraction
-- Streaming transcription with Deepgram (it supports real-time)
+## Multi-Platform Strategy
+- **Windows desktop** (current) — Electron, .exe installer
+- **Android** — React Native / Expo port for Play Store ($25 dev account)
+- **Mac** — Electron builds for Mac (same codebase, just need code signing)
+- **iOS** — Needs Apple Developer account ($99/yr)
+- **Web app** — Browser-only version (no hotkey, but mic button works)
+- Use this as the first app to establish developer accounts on Play Store, App Store, etc.
+- Once accounts are set up, can publish other apps too
+
+## Distribution Channels
+- **Own website** — Landing page + Stripe checkout + direct download
+- **Gumroad** — Indie software marketplace, handles payments and delivery
+- **Microsoft Store** — Wider reach for Windows users
+- **Google Play Store** — Android version
+- **Apple App Store** — iOS version (future)
+
+## Marketing Ideas
+- "VoiceType vs Windows Dictation" comparison content
+- Demo video showing hold-to-talk → instant typed text workflow
+- Target audiences: writers, students, professionals with RSI, accessibility users
+- Reddit (r/productivity, r/speechrecognition), Twitter/X, TikTok demos
+- SEO landing page targeting "voice to text app for windows"
+- Free trial (7-14 days) to reduce friction
+- Affiliate/referral program
+
+## Future Features
+- Dark/light theme toggle (setting exists but not fully implemented)
+- Voice command shortcuts ("new paragraph", "delete that", "undo")
+- Template system for common patterns (email signatures, greetings)
+- Streaming transcription with Deepgram (real-time text as you speak)
+- Overlay window size/position memory
+- Learning mode confidence threshold
+- Learning mode undo/review queue
+- Word count / character count display
+- Export transcription history
+- Auto-save drafts between sessions
+- Batch reprocess when mode prompt changes
+- Keyboard shortcuts for mode switching
+
+## Technical Improvements
+- Pre-create indicator window on app start (hidden) to eliminate first-press flash
+- Pipe actual audio analyser data to indicator window for reactive bars
+- Use `diff` library more actively for pattern extraction
 - Show confidence scores from transcription
 - Better error recovery with retry logic for API calls
-- Batch reprocess all platforms when global rules change
-- Keyboard shortcuts for platform switching (Ctrl+1, Ctrl+2, etc.)
-- Resizable sidebar width
-- Platform drag-and-drop reordering
-- Ticket categories/tags
-- Ticket export to CSV/JSON
-- Overlay could show a mini volume meter during recording
-- Learning mode could track correction frequency to prioritize dictionary entries
+- Consider WebSocket for streaming audio to API proxy
 
-## Architecture Notes for Future Overlay Work
-- The overlay detection currently lives in App.tsx as an early return before hooks. This is fragile.
-- When re-implementing overlay features (platform dropdown, mic gain), consider moving overlay detection to main.tsx to render OverlayView as a completely separate component tree — avoids any hooks ordering issues.
-- The blank overlay bug in Session 4 may have been caused by new useState calls + dependency array changes in OverlayView.tsx, not the hooks violation in App.tsx. Test overlay changes incrementally.
+## Architecture Notes
+- Indicator detection lives in main.tsx (separate component tree from App)
+- Transparent overlay achieved by clearing body background + classes for indicator window
+- Hotkey system uses uiohook-napi with configurable key mapping and double-tap detection
+- Audio chain: MediaStream → GainNode → AnalyserNode
+- For Android port: no global hotkey possible, would need a floating bubble or notification bar button

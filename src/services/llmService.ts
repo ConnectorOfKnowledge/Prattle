@@ -1,36 +1,32 @@
 // LLM service for text processing, tone adjustment, and learning
 
-import type { Settings, PlatformPrompt, Dictionary, LearnedPattern, ChatMessage } from '../types'
+import type { Settings, Dictionary, LearnedPattern, ChatMessage } from '../types'
+import { BASE_RULES, DICTATION_MODES } from '../constants/modes'
 
-// Process text through the selected LLM with platform-specific prompt
+// Process text through the selected LLM using a mode index
 export async function processText(
   rawText: string,
-  platformPrompt: PlatformPrompt,
+  modeIndex: number,
   dictionary: Dictionary,
   learnedPatterns: LearnedPattern[],
   settings: Settings
 ): Promise<string> {
-  // If raw mode (no prompt), just apply dictionary and return
-  if (!platformPrompt.prompt) {
-    return applyDictionary(rawText, dictionary)
-  }
+  const mode = DICTATION_MODES[modeIndex]
+  if (!mode) return rawText
 
   // Apply dictionary replacements first
   let text = applyDictionary(rawText, dictionary)
 
-  // Build the full prompt with learned patterns
+  // Build system prompt from base rules + mode + custom prompt override + learned patterns
+  const customPrompt = settings.customPrompts?.[modeIndex]
+  const modeDescription = customPrompt || mode.description
+
+  let systemPrompt = `${BASE_RULES}\n\nMODE: ${mode.name}\n${modeDescription}`
+
+  // Add learned patterns that apply to this mode
   const activePatterns = learnedPatterns.filter(p =>
-    p.active && (p.platform === 'all' || p.platform === settings.activePlatform)
+    p.active && (p.platform === 'all' || p.platform === mode.id)
   )
-
-  let systemPrompt = ''
-
-  // Prepend global rules if set
-  if (settings.globalRules?.trim()) {
-    systemPrompt += `GLOBAL RULES (always apply these):\n${settings.globalRules.trim()}\n\nPLATFORM-SPECIFIC INSTRUCTIONS:\n`
-  }
-
-  systemPrompt += platformPrompt.prompt
 
   if (activePatterns.length > 0) {
     const patternsText = activePatterns
@@ -40,7 +36,6 @@ export async function processText(
   }
 
   // Call the appropriate LLM
-  const provider = settings.llmProvider
   const apiKey = getApiKeyForLLM(settings)
 
   if (!apiKey) {
@@ -48,19 +43,90 @@ export async function processText(
     return text
   }
 
+  // Wrap the raw transcription with context so the LLM knows what it's working with
+  const userMessage = `[Voice dictation transcription to clean up]:\n${text}`
+
   try {
-    switch (provider) {
+    switch (settings.llmProvider) {
       case 'gemini':
-        return await callGemini(text, systemPrompt, apiKey)
+        return await callGemini(userMessage, systemPrompt, apiKey)
       case 'claude':
-        return await callClaude(text, systemPrompt, apiKey)
+        return await callClaude(userMessage, systemPrompt, apiKey)
       case 'openai':
-        return await callOpenAI(text, systemPrompt, apiKey)
+        return await callOpenAI(userMessage, systemPrompt, apiKey)
       default:
         return text
     }
   } catch (error) {
     console.error('LLM processing failed:', error)
+    throw error
+  }
+}
+
+// Rewrite previously dictated text based on a spoken instruction
+export async function rewriteText(
+  originalText: string,
+  instruction: string,
+  settings: Settings
+): Promise<string> {
+  const apiKey = getApiKeyForLLM(settings)
+  if (!apiKey) throw new Error('No API key configured')
+
+  const systemPrompt = `You are a text editor. The user previously dictated the following text:
+
+"${originalText}"
+
+The user has now spoken a modification instruction. Apply their requested changes to the original text.
+Preserve meaning and tone unless the instruction specifically asks to change it.
+Output ONLY the modified text. No commentary, no preamble, no quotes.`
+
+  try {
+    switch (settings.llmProvider) {
+      case 'gemini':
+        return await callGemini(instruction, systemPrompt, apiKey)
+      case 'claude':
+        return await callClaude(instruction, systemPrompt, apiKey)
+      case 'openai':
+        return await callOpenAI(instruction, systemPrompt, apiKey)
+      default:
+        throw new Error('Unknown LLM provider')
+    }
+  } catch (error) {
+    console.error('Rewrite failed:', error)
+    throw error
+  }
+}
+
+// Revise a mode prompt via AI chat instruction (for ModesView prompt editor)
+export async function revisePrompt(
+  currentPrompt: string,
+  userInstruction: string,
+  settings: Settings
+): Promise<string> {
+  const apiKey = getApiKeyForLLM(settings)
+  if (!apiKey) throw new Error('No API key configured')
+
+  const systemPrompt = `You are a prompt engineer helping the user customize their dictation mode prompt.
+
+The current prompt is:
+"${currentPrompt}"
+
+The user wants to modify this prompt. Apply their requested changes and return the updated prompt text.
+Output ONLY the revised prompt text. No commentary, no preamble, no quotes around it.`
+
+  try {
+    switch (settings.llmProvider) {
+      case 'gemini':
+        return await callGemini(userInstruction, systemPrompt, apiKey)
+      case 'claude':
+        return await callClaude(userInstruction, systemPrompt, apiKey)
+      case 'openai':
+        return await callOpenAI(userInstruction, systemPrompt, apiKey)
+      default:
+        throw new Error('Unknown LLM provider')
+    }
+  } catch (error) {
+    console.error('Prompt revision failed:', error)
     throw error
   }
 }
@@ -95,7 +161,7 @@ export async function chatWithAI(
 export async function analyzeEdits(
   originalText: string,
   editedText: string,
-  platform: string,
+  modeId: string,
   settings: Settings
 ): Promise<{ description: string; rule: string } | null> {
   // Don't analyze if texts are identical or too short
@@ -113,7 +179,7 @@ ORIGINAL TEXT (after AI processing):
 USER'S EDITED VERSION:
 "${editedText}"
 
-CONTEXT: This text was for the "${platform}" platform.
+CONTEXT: This text was for the "${modeId}" dictation mode.
 
 Analyze what the user changed and why. If you can identify a clear, reusable pattern or preference, respond with EXACTLY this JSON format:
 {"description": "Brief human-readable description of the pattern", "rule": "Specific rule to apply in future processing"}

@@ -55,11 +55,11 @@ export default function SettingsView() {
 
   return (
     <div className="p-4 max-w-2xl mx-auto space-y-4 slide-in">
-      <h2 className="text-lg font-semibold text-gray-800">Settings</h2>
+      <h2 className="text-lg font-semibold text-cd-text">Settings</h2>
 
       {/* Speech Provider */}
-      <div className="card">
-        <h3 className="font-medium text-gray-700 mb-3">Speech-to-Text Provider</h3>
+      <div className="bg-cd-card rounded-2xl border border-white/5 p-5">
+        <h3 className="font-medium text-cd-text mb-3">Speech-to-Text Provider</h3>
         <div className="space-y-2">
           {[
             { id: 'gemini', name: 'Google Gemini', desc: 'Uses your Gemini API key. Free tier available.' },
@@ -70,8 +70,8 @@ export default function SettingsView() {
               key={provider.id}
               className={`flex items-center gap-3 p-3 rounded-xl border cursor-pointer transition-all
                 ${localSettings.speechProvider === provider.id
-                  ? 'border-primary-400 bg-primary-50'
-                  : 'border-surface-200 hover:border-surface-300'
+                  ? 'border-cd-accent/50 bg-cd-accent/10'
+                  : 'border-white/10 hover:border-white/20'
                 }`}
             >
               <input
@@ -80,11 +80,11 @@ export default function SettingsView() {
                 value={provider.id}
                 checked={localSettings.speechProvider === provider.id}
                 onChange={(e) => updateSetting('speechProvider', e.target.value as Settings['speechProvider'])}
-                className="text-primary-500"
+                className="text-cd-accent"
               />
               <div>
-                <div className="font-medium text-sm text-gray-800">{provider.name}</div>
-                <div className="text-xs text-gray-500">{provider.desc}</div>
+                <div className="font-medium text-sm text-cd-text">{provider.name}</div>
+                <div className="text-xs text-cd-subtle">{provider.desc}</div>
               </div>
             </label>
           ))}
@@ -92,21 +92,21 @@ export default function SettingsView() {
       </div>
 
       {/* LLM Provider */}
-      <div className="card">
-        <h3 className="font-medium text-gray-700 mb-3">AI Processing Provider</h3>
-        <p className="text-xs text-gray-500 mb-3">Used for tone adjustment, text cleaning, and learning from your edits</p>
+      <div className="bg-cd-card rounded-2xl border border-white/5 p-5">
+        <h3 className="font-medium text-cd-text mb-3">AI Processing Provider</h3>
+        <p className="text-xs text-cd-subtle mb-3">Used for tone adjustment, text cleaning, and prompt revision</p>
         <div className="space-y-2">
           {[
-            { id: 'gemini', name: 'Google Gemini', desc: 'Generous free tier, fast', keyField: 'gemini' },
-            { id: 'claude', name: 'Anthropic Claude', desc: 'Excellent writing quality', keyField: 'claude' },
-            { id: 'openai', name: 'OpenAI GPT', desc: 'Versatile, widely used', keyField: 'openai' },
+            { id: 'gemini', name: 'Google Gemini', desc: 'Generous free tier, fast' },
+            { id: 'claude', name: 'Anthropic Claude', desc: 'Excellent writing quality' },
+            { id: 'openai', name: 'OpenAI GPT', desc: 'Versatile, widely used' },
           ].map(provider => (
             <label
               key={provider.id}
               className={`flex items-center gap-3 p-3 rounded-xl border cursor-pointer transition-all
                 ${localSettings.llmProvider === provider.id
-                  ? 'border-primary-400 bg-primary-50'
-                  : 'border-surface-200 hover:border-surface-300'
+                  ? 'border-cd-accent/50 bg-cd-accent/10'
+                  : 'border-white/10 hover:border-white/20'
                 }`}
             >
               <input
@@ -115,11 +115,11 @@ export default function SettingsView() {
                 value={provider.id}
                 checked={localSettings.llmProvider === provider.id}
                 onChange={(e) => updateSetting('llmProvider', e.target.value as Settings['llmProvider'])}
-                className="text-primary-500"
+                className="text-cd-accent"
               />
               <div>
-                <div className="font-medium text-sm text-gray-800">{provider.name}</div>
-                <div className="text-xs text-gray-500">{provider.desc}</div>
+                <div className="font-medium text-sm text-cd-text">{provider.name}</div>
+                <div className="text-xs text-cd-subtle">{provider.desc}</div>
               </div>
             </label>
           ))}
@@ -127,9 +127,9 @@ export default function SettingsView() {
       </div>
 
       {/* API Keys */}
-      <div className="card">
-        <h3 className="font-medium text-gray-700 mb-3">API Keys</h3>
-        <p className="text-xs text-gray-500 mb-4">
+      <div className="bg-cd-card rounded-2xl border border-white/5 p-5">
+        <h3 className="font-medium text-cd-text mb-3">API Keys</h3>
+        <p className="text-xs text-cd-subtle mb-4">
           Keys are stored locally on your computer only. Never sent anywhere except the API provider.
         </p>
 
@@ -141,7 +141,7 @@ export default function SettingsView() {
             { id: 'deepgram', label: 'Deepgram API Key', hint: 'Get from console.deepgram.com' },
           ].map(key => (
             <div key={key.id}>
-              <label className="block text-sm font-medium text-gray-700 mb-1">{key.label}</label>
+              <label className="block text-sm font-medium text-cd-text mb-1">{key.label}</label>
               <div className="relative">
                 <input
                   type={showKeys[key.id] ? 'text' : 'password'}
@@ -154,60 +154,28 @@ export default function SettingsView() {
                   onChange={(e) => updateApiKey(key.id, e.target.value)}
                   onFocus={() => setShowKeys(prev => ({ ...prev, [key.id]: true }))}
                   placeholder={`Enter your ${key.label}`}
-                  className="input-field pr-10 text-sm font-mono"
+                  className="w-full px-4 py-2.5 rounded-xl border border-white/10 bg-cd-bg text-cd-text placeholder-cd-subtle/50 focus:outline-none focus:ring-2 focus:ring-cd-accent/50 focus:border-cd-accent/50 pr-10 text-sm font-mono"
                 />
                 <button
                   onClick={() => toggleShowKey(key.id)}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-gray-400 hover:text-gray-600"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-cd-subtle hover:text-cd-text"
                 >
                   {showKeys[key.id] ? <HiEyeSlash className="w-4 h-4" /> : <HiEye className="w-4 h-4" />}
                 </button>
               </div>
-              <p className="text-xs text-gray-400 mt-1">{key.hint}</p>
+              <p className="text-xs text-cd-subtle mt-1">{key.hint}</p>
             </div>
           ))}
         </div>
       </div>
 
       {/* Preferences */}
-      <div className="card">
-        <h3 className="font-medium text-gray-700 mb-3">Preferences</h3>
+      <div className="bg-cd-card rounded-2xl border border-white/5 p-5">
+        <h3 className="font-medium text-cd-text mb-3">Preferences</h3>
 
         <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <div className="text-sm font-medium text-gray-700">Auto-process with AI</div>
-              <div className="text-xs text-gray-500">Automatically clean up text after transcription</div>
-            </div>
-            <label className="relative inline-flex items-center cursor-pointer">
-              <input
-                type="checkbox"
-                checked={localSettings.autoProcess}
-                onChange={(e) => updateSetting('autoProcess', e.target.checked)}
-                className="sr-only peer"
-              />
-              <div className="w-10 h-5 bg-surface-300 peer-focus:ring-2 peer-focus:ring-primary-300 rounded-full peer peer-checked:after:translate-x-5 after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-primary-500"></div>
-            </label>
-          </div>
-
-          <div className="flex items-center justify-between">
-            <div>
-              <div className="text-sm font-medium text-gray-700">Learning Mode</div>
-              <div className="text-xs text-gray-500">Auto-learn word corrections to your dictionary when you edit and copy</div>
-            </div>
-            <label className="relative inline-flex items-center cursor-pointer">
-              <input
-                type="checkbox"
-                checked={localSettings.learningMode}
-                onChange={(e) => updateSetting('learningMode', e.target.checked)}
-                className="sr-only peer"
-              />
-              <div className="w-10 h-5 bg-surface-300 peer-focus:ring-2 peer-focus:ring-primary-300 rounded-full peer peer-checked:after:translate-x-5 after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-primary-500"></div>
-            </label>
-          </div>
-
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label className="block text-sm font-medium text-cd-text mb-1">
               Font Size: {localSettings.fontSize}px
             </label>
             <input
@@ -216,57 +184,88 @@ export default function SettingsView() {
               max="24"
               value={localSettings.fontSize}
               onChange={(e) => updateSetting('fontSize', parseInt(e.target.value))}
-              className="w-full accent-primary-500"
+              className="w-full accent-cd-accent"
             />
-            <div className="flex justify-between text-xs text-gray-400">
+            <div className="flex justify-between text-xs text-cd-subtle">
               <span>Small</span>
               <span>Large</span>
             </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-cd-text mb-1">
+              Mic Gain: {localSettings.micGain ?? 100}%
+            </label>
+            <input
+              type="range"
+              min="0"
+              max="200"
+              value={localSettings.micGain ?? 100}
+              onChange={(e) => updateSetting('micGain', parseInt(e.target.value))}
+              className="w-full accent-cd-accent"
+            />
+            <div className="flex justify-between text-xs text-cd-subtle">
+              <span>Mute</span>
+              <span>Normal</span>
+              <span>200%</span>
+            </div>
+            <p className="text-xs text-cd-subtle mt-1">
+              Boost or reduce mic input volume. 100% = no change.
+            </p>
           </div>
         </div>
       </div>
 
       {/* Global Hotkey */}
-      <div className="card">
-        <h3 className="font-medium text-gray-700 mb-3">Global Hotkey</h3>
-        <p className="text-xs text-gray-500 mb-3">
-          Press this keyboard shortcut from any app to open the VoiceType quick-record overlay.
+      <div className="bg-cd-card rounded-2xl border border-white/5 p-5">
+        <h3 className="font-medium text-cd-text mb-3">Global Hotkey</h3>
+        <p className="text-xs text-cd-subtle mb-3">
+          <strong>Hold</strong> to record, release to process and auto-type.
+          <strong> Double-tap</strong> for hands-free mode (tap again to stop).
+          After dictation, hold again to speak a rewrite instruction.
         </p>
         <div className="flex items-center gap-3">
-          <input
-            type="text"
+          <select
             value={localSettings.hotkey}
             onChange={(e) => updateSetting('hotkey', e.target.value)}
-            placeholder="e.g., Ctrl+Shift+Space"
-            className="input-field text-sm font-mono flex-1"
-          />
-          <div className="text-xs text-gray-400 shrink-0">Format: Ctrl+Shift+Key</div>
+            className="flex-1 px-4 py-2.5 rounded-xl border border-white/10 bg-cd-bg text-cd-text focus:outline-none focus:ring-2 focus:ring-cd-accent/50 text-sm font-mono"
+          >
+            <option value="RightAlt">Right Alt</option>
+            <option value="F2">F2</option>
+            <option value="F8">F8</option>
+            <option value="F9">F9</option>
+            <option value="Insert">Insert</option>
+            <option value="ScrollLock">Scroll Lock</option>
+            <option value="Pause">Pause</option>
+            <option value="Ctrl+Space">Ctrl + Space</option>
+            <option value="Ctrl+Shift+Space">Ctrl + Shift + Space</option>
+          </select>
         </div>
-        <p className="text-xs text-gray-400 mt-2">
-          Common options: Ctrl+Shift+Space, Ctrl+Shift+R, Ctrl+Alt+V
+        <p className="text-xs text-cd-subtle mt-2">
+          Pick a single key you can comfortably hold while talking. Right Alt is recommended.
         </p>
       </div>
 
       {/* Data Location */}
-      <div className="card">
-        <h3 className="font-medium text-gray-700 mb-2">Data Storage</h3>
-        <div className="flex items-center gap-2 text-sm text-gray-500">
+      <div className="bg-cd-card rounded-2xl border border-white/5 p-5">
+        <h3 className="font-medium text-cd-text mb-2">Data Storage</h3>
+        <div className="flex items-center gap-2 text-sm text-cd-subtle">
           <HiFolderOpen className="w-4 h-4" />
           <span className="font-mono text-xs break-all">{dataPath}</span>
         </div>
-        <p className="text-xs text-gray-400 mt-1">
+        <p className="text-xs text-cd-subtle mt-1">
           All your settings, dictionary, and learned patterns are stored here.
         </p>
       </div>
 
       {/* Save button */}
-      <div className="flex justify-end">
+      <div className="flex justify-end pb-4">
         <button
           onClick={handleSave}
           className={`px-6 py-2.5 rounded-xl font-medium transition-all duration-200 shadow-sm
             ${saved
               ? 'bg-green-500 text-white'
-              : 'bg-primary-500 hover:bg-primary-600 text-white hover:shadow-md'
+              : 'bg-cd-accent hover:bg-cd-accent/80 text-white hover:shadow-md'
             }`}
         >
           {saved ? 'Saved!' : 'Save Settings'}

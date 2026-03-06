@@ -1,3 +1,5 @@
+import type { RecordingState } from '../constants/modes'
+
 export interface Settings {
   speechProvider: 'whisper' | 'deepgram' | 'browser' | 'gemini'
   llmProvider: 'gemini' | 'claude' | 'openai'
@@ -7,24 +9,12 @@ export interface Settings {
     claude?: string
     deepgram?: string
   }
-  activePlatform: string
-  autoProcess: boolean
+  currentModeIndex: number
+  customPrompts: Record<number, string>
   fontSize: number
+  micGain: number  // 0-200, percentage (100 = normal)
   theme: 'light' | 'dark'
-  globalRules: string
   hotkey: string
-  learningMode: boolean
-}
-
-export interface PlatformPrompt {
-  name: string
-  icon: string
-  prompt: string
-  enabled: boolean
-}
-
-export interface PlatformPrompts {
-  [key: string]: PlatformPrompt
 }
 
 export interface Dictionary {
@@ -51,18 +41,6 @@ export interface TranscriptionResult {
   duration?: number
 }
 
-export interface Ticket {
-  id: string
-  title: string
-  description: string
-  priority: 'low' | 'medium' | 'high'
-  status: 'open' | 'in-progress' | 'done'
-  createdAt: string
-  updatedAt: string
-}
-
-export type Tickets = Ticket[]
-
 export interface ChatMessage {
   role: 'user' | 'assistant'
   content: string
@@ -74,22 +52,20 @@ declare global {
     electronAPI: {
       getSettings: () => Promise<Settings>
       saveSettings: (settings: Settings) => Promise<boolean>
-      getPlatformPrompts: () => Promise<PlatformPrompts>
-      savePlatformPrompts: (prompts: PlatformPrompts) => Promise<boolean>
       getDictionary: () => Promise<Dictionary>
       saveDictionary: (dictionary: Dictionary) => Promise<boolean>
       getLearnedPatterns: () => Promise<LearnedPatterns>
       saveLearnedPatterns: (patterns: LearnedPatterns) => Promise<boolean>
-      getTickets: () => Promise<Tickets>
-      saveTickets: (tickets: Tickets) => Promise<boolean>
       pasteToExternal: (text: string) => Promise<boolean>
-      pasteFromOverlay: (text: string) => Promise<boolean>
+      autoTypeText: (text: string) => Promise<boolean>
       updateHotkey: (hotkey: string) => Promise<boolean>
       getUserDataPath: () => Promise<string>
       showSaveDialog: (options: any) => Promise<any>
       showOpenDialog: (options: any) => Promise<any>
       writeFile: (filePath: string, content: string) => Promise<boolean>
       readFile: (filePath: string) => Promise<string>
+      hideIndicator: () => void
+      onRecordingCommand: (callback: (command: string, data?: any) => void) => () => void
     }
   }
 }

@@ -4,7 +4,7 @@
 
 @layer base {
   body {
-    @apply bg-surface-50 text-gray-800 font-sans antialiased;
+    @apply bg-cd-bg text-cd-text font-sans antialiased;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }
@@ -12,52 +12,39 @@
 
 @layer components {
   .btn-primary {
-    @apply bg-primary-500 hover:bg-primary-600 text-white px-4 py-2 rounded-xl font-medium
+    @apply bg-cd-accent hover:bg-cd-accent/80 text-white px-4 py-2 rounded-xl font-medium
            transition-all duration-200 shadow-sm hover:shadow-md active:scale-[0.98];
   }
 
   .btn-secondary {
-    @apply bg-white hover:bg-surface-100 text-gray-700 px-4 py-2 rounded-xl font-medium
-           border border-surface-300 transition-all duration-200 shadow-sm hover:shadow-md active:scale-[0.98];
+    @apply bg-cd-card hover:bg-white/10 text-cd-text px-4 py-2 rounded-xl font-medium
+           border border-white/10 transition-all duration-200 shadow-sm hover:shadow-md active:scale-[0.98];
   }
 
   .btn-danger {
-    @apply bg-red-50 hover:bg-red-100 text-red-600 px-4 py-2 rounded-xl font-medium
-           border border-red-200 transition-all duration-200;
+    @apply bg-red-900/30 hover:bg-red-900/50 text-red-400 px-4 py-2 rounded-xl font-medium
+           border border-red-700/30 transition-all duration-200;
   }
 
   .btn-icon {
-    @apply p-2 rounded-xl hover:bg-surface-100 text-gray-500 hover:text-gray-700
+    @apply p-2 rounded-xl hover:bg-white/10 text-cd-subtle hover:text-cd-text
            transition-all duration-200 active:scale-[0.95];
   }
 
   .card {
-    @apply bg-white rounded-2xl shadow-sm border border-surface-200 p-5;
+    @apply bg-cd-card rounded-2xl shadow-sm border border-white/5 p-5;
   }
 
   .input-field {
-    @apply w-full px-4 py-2.5 rounded-xl border border-surface-300 bg-white
-           focus:outline-none focus:ring-2 focus:ring-primary-300 focus:border-primary-400
-           transition-all duration-200 text-gray-800 placeholder-gray-400;
+    @apply w-full px-4 py-2.5 rounded-xl border border-white/10 bg-cd-bg
+           focus:outline-none focus:ring-2 focus:ring-cd-accent/50 focus:border-cd-accent/50
+           transition-all duration-200 text-cd-text placeholder-cd-subtle/50;
   }
 
   .textarea-field {
-    @apply w-full px-4 py-3 rounded-xl border border-surface-300 bg-white
-           focus:outline-none focus:ring-2 focus:ring-primary-300 focus:border-primary-400
-           transition-all duration-200 text-gray-800 placeholder-gray-400 resize-none;
-  }
-
-  .platform-chip {
-    @apply px-3 py-1.5 rounded-xl text-sm font-medium cursor-pointer
-           transition-all duration-200 border;
-  }
-
-  .platform-chip-active {
-    @apply bg-primary-500 text-white border-primary-500 shadow-sm;
-  }
-
-  .platform-chip-inactive {
-    @apply bg-white text-gray-600 border-surface-300 hover:bg-surface-100 hover:border-surface-400;
+    @apply w-full px-4 py-3 rounded-xl border border-white/10 bg-cd-bg
+           focus:outline-none focus:ring-2 focus:ring-cd-accent/50 focus:border-cd-accent/50
+           transition-all duration-200 text-cd-text placeholder-cd-subtle/50 resize-none;
   }
 }
 
@@ -81,7 +68,7 @@
   to { opacity: 1; transform: translateY(0); }
 }
 
-/* Custom scrollbar */
+/* Custom scrollbar - dark theme */
 ::-webkit-scrollbar {
   width: 6px;
 }
@@ -91,10 +78,10 @@
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #d1d5db;
+  background: #333;
   border-radius: 3px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #9ca3af;
+  background: #555;
 }

@@ -103,8 +103,8 @@ export default function DictionaryView() {
     <div className="p-4 max-w-2xl mx-auto space-y-4 slide-in">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-lg font-semibold text-gray-800">Dictionary</h2>
-          <p className="text-sm text-gray-500">
+          <h2 className="text-lg font-semibold text-cd-text">Dictionary</h2>
+          <p className="text-sm text-cd-subtle">
             Word replacements applied before AI processing. {entries.length} entries.
           </p>
         </div>
@@ -130,7 +130,7 @@ export default function DictionaryView() {
         <div className="card slide-in">
           <div className="flex items-end gap-3">
             <div className="flex-1">
-              <label className="block text-xs font-medium text-gray-500 mb-1">When I say...</label>
+              <label className="block text-xs font-medium text-cd-subtle mb-1">When I say...</label>
               <input
                 type="text"
                 value={newFrom}
@@ -141,9 +141,9 @@ export default function DictionaryView() {
                 onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
               />
             </div>
-            <div className="text-gray-400 pb-2.5">→</div>
+            <div className="text-cd-subtle pb-2.5">&rarr;</div>
             <div className="flex-1">
-              <label className="block text-xs font-medium text-gray-500 mb-1">Replace with...</label>
+              <label className="block text-xs font-medium text-cd-subtle mb-1">Replace with...</label>
               <input
                 type="text"
                 value={newTo}
@@ -163,7 +163,7 @@ export default function DictionaryView() {
       {/* Search */}
       {entries.length > 5 && (
         <div className="relative">
-          <HiMagnifyingGlass className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+          <HiMagnifyingGlass className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-cd-subtle" />
           <input
             type="text"
             value={search}
@@ -177,14 +177,14 @@ export default function DictionaryView() {
       {/* Entries list */}
       <div className="card">
         {filteredEntries.length === 0 ? (
-          <div className="text-center py-8 text-gray-400">
+          <div className="text-center py-8 text-cd-subtle">
             {entries.length === 0
-              ? 'No dictionary entries yet. Add words above, or they\'ll be added automatically from your edits.'
+              ? 'No dictionary entries yet. Add words above.'
               : 'No matches found.'
             }
           </div>
         ) : (
-          <div className="divide-y divide-surface-200">
+          <div className="divide-y divide-white/5">
             {filteredEntries.map(([from, to]) => (
               <div key={from} className="flex items-center gap-3 py-2.5 group">
                 {editingKey === from ? (
@@ -196,7 +196,7 @@ export default function DictionaryView() {
                       className="input-field text-sm flex-1 py-1.5"
                       autoFocus
                     />
-                    <span className="text-gray-400 text-sm">→</span>
+                    <span className="text-cd-subtle text-sm">&rarr;</span>
                     <input
                       type="text"
                       value={editTo}
@@ -204,23 +204,23 @@ export default function DictionaryView() {
                       className="input-field text-sm flex-1 py-1.5"
                       onKeyDown={(e) => e.key === 'Enter' && handleEdit(from)}
                     />
-                    <button onClick={() => handleEdit(from)} className="btn-icon text-green-600">
+                    <button onClick={() => handleEdit(from)} className="btn-icon text-green-400">
                       <HiCheck className="w-4 h-4" />
                     </button>
-                    <button onClick={() => setEditingKey(null)} className="btn-icon text-gray-400">
+                    <button onClick={() => setEditingKey(null)} className="btn-icon text-cd-subtle">
                       <HiXMark className="w-4 h-4" />
                     </button>
                   </>
                 ) : (
                   <>
-                    <span className="text-sm text-gray-700 flex-1 font-medium">{from}</span>
-                    <span className="text-gray-400 text-sm">→</span>
-                    <span className="text-sm text-primary-600 flex-1">{to}</span>
+                    <span className="text-sm text-cd-text flex-1 font-medium">{from}</span>
+                    <span className="text-cd-subtle text-sm">&rarr;</span>
+                    <span className="text-sm text-cd-accent flex-1">{to}</span>
                     <div className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1">
                       <button onClick={() => startEdit(from, to)} className="btn-icon">
                         <HiPencil className="w-3.5 h-3.5" />
                       </button>
-                      <button onClick={() => handleDelete(from)} className="btn-icon text-red-400 hover:text-red-600">
+                      <button onClick={() => handleDelete(from)} className="btn-icon text-red-400 hover:text-red-500">
                         <HiTrash className="w-3.5 h-3.5" />
                       </button>
                     </div>

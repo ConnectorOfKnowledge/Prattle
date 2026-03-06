@@ -6,6 +6,7 @@ export class SpeechService {
   private stream: MediaStream | null = null
   private audioContext: AudioContext | null = null
   private analyserNode: AnalyserNode | null = null
+  private gainNode: GainNode | null = null
   private visualizationStream: MediaStream | null = null
 
   async startRecording(): Promise<void> {
@@ -65,19 +66,32 @@ export class SpeechService {
     this.cleanup()
   }
 
-  // Set up AudioContext + AnalyserNode from a media stream
+  // Set up AudioContext + GainNode + AnalyserNode from a media stream
   private setupAnalyser(stream: MediaStream): void {
     try {
       this.audioContext = new AudioContext()
       const source = this.audioContext.createMediaStreamSource(stream)
 
+      // Gain node for mic volume control (0-200% range)
+      this.gainNode = this.audioContext.createGain()
+      this.gainNode.gain.value = 1.0 // Default 100%
+
       this.analyserNode = this.audioContext.createAnalyser()
       this.analyserNode.fftSize = 256
       this.analyserNode.smoothingTimeConstant = 0.8
 
-      source.connect(this.analyserNode)
+      // Chain: source -> gain -> analyser
+      source.connect(this.gainNode)
+      this.gainNode.connect(this.analyserNode)
     } catch (error) {
       console.error('Failed to set up audio analyser:', error)
+    }
+  }
+
+  // Set mic gain (0-200 percentage, where 100 = normal)
+  setMicGain(gain: number): void {
+    if (this.gainNode) {
+      this.gainNode.gain.value = gain / 100
     }
   }
 
@@ -122,6 +136,7 @@ export class SpeechService {
       this.audioContext = null
     }
     this.analyserNode = null
+    this.gainNode = null
   }
 
   private getSupportedMimeType(): string {

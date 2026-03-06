@@ -1,55 +1,56 @@
 # VoiceType - TODO
 
-## Priority: High
-- [ ] Add API keys and test full workflow end-to-end
-- [ ] Test paste-to-external window feature
-- [ ] Test chat/modify panel with real LLM responses
-- [ ] Test volume meter with live microphone
-- [ ] Test simultaneous platform processing (verify all previews populate)
-- [ ] Test global hotkey overlay (Ctrl+Shift+Space from external apps)
-- [ ] Test learning mode correction detection (edit text, copy, verify dictionary addition)
-- [ ] Initialize git repo + first commit
+## Priority: Critical (Ship Blockers)
+- [ ] Fix first-press blank indicator (pre-create window on app start, keep hidden)
+- [ ] Build API proxy server so users don't need their own API keys
+- [ ] Supabase auth system (user accounts, subscription status)
+- [ ] Stripe subscription integration ($19.95/mo or $89/yr)
+- [ ] License verification check on app launch
+- [ ] Windows code signing certificate (prevents "unknown publisher" warning)
+- [ ] Auto-updater via electron-updater + GitHub Releases
+- [ ] Package .exe installer with electron-builder (NSIS)
+- [ ] App icon and branding
 
-## Priority: Medium
-- [ ] Platform dropdown in overlay — let user switch platforms from the overlay window (attempted Session 4, reverted due to blank overlay bug — needs careful approach, see Known Issues in PROJECT_STATUS)
-- [ ] Mic gain/volume slider in Settings — 0-200% range, GainNode in audio chain (attempted Session 4, reverted along with overlay fix)
-- [ ] Test all speech providers (Whisper, Deepgram, Gemini, Browser)
-- [ ] Test all LLM providers (Gemini, Claude, OpenAI)
-- [ ] Test dictionary import/export
-- [ ] Test learning pattern auto-extraction
-- [ ] Handle edge cases (no mic access, API failures, empty recordings)
+## Priority: High (Before Public Release)
+- [ ] Make audio bars reactive to actual mic input (pipe analyser data to indicator)
+- [ ] System tray icon — run in background, show/hide from tray
+- [ ] Onboarding flow — first-launch setup wizard (create account, enter payment)
+- [ ] Error handling for API failures, no mic access, network issues
+- [ ] Usage tracking + rate limiting on API proxy
+- [ ] Landing page with Stripe checkout + download link
+- [ ] Android version (React Native / Expo port) — Play Store listing ($25 one-time fee)
 
-## Priority: Low
-- [ ] Dark mode implementation
-- [ ] Add keyboard shortcut for copy (Ctrl+Enter?)
-- [ ] Consider undo/redo in the text editor
-- [ ] Ticket archive/history view (separate from active tickets)
-- [ ] GPU cache warnings when running from Google Drive (cosmetic only)
+## Priority: Medium (Post-Launch Polish)
+- [ ] Demo video / product walkthrough for marketing
+- [ ] Reactive volume meter in indicator overlay
+- [ ] Voice command shortcuts ("new paragraph", "delete that")
+- [ ] Streaming transcription with Deepgram (real-time)
+- [ ] Export transcription history
+- [ ] Template system for common text patterns
+
+## Priority: Low (Future Ideas)
+- [ ] Mac version
+- [ ] iOS version
+- [ ] Configurable language for speech recognition
+- [ ] Learning mode confidence threshold
+- [ ] Notification when transcription completes
 
 ## Completed
 - [x] Scaffold entire app (Electron + React + Vite + Tailwind)
-- [x] Build all views (Main, Settings, Dictionary, Learning, Prompts, Tickets)
-- [x] Implement speech recording service with volume analyser
-- [x] Implement Whisper + Deepgram + Gemini + Browser transcription
-- [x] Implement Gemini + Claude + OpenAI LLM processing
-- [x] Implement dictionary word replacement
-- [x] Implement learning pattern system
-- [x] Implement platform prompt system with 7 defaults
-- [x] Implement Electron IPC data persistence
-- [x] First successful app launch (2026-03-01)
-- [x] Fix double-window bug (electron:dev script)
-- [x] Fix recording timer (Zustand getState pattern)
-- [x] Platform sidebar with text previews
-- [x] Simultaneous platform processing (all platforms process in parallel)
-- [x] Per-platform text caching (preserves edits when switching)
-- [x] Paste-to-external button (PowerShell SendKeys)
-- [x] Action bar near record button (Copy/Paste/Clear/Redo/Modify)
-- [x] Global rules system (cross-platform text rules)
-- [x] Default filler word removal global rule
-- [x] Chat/Modify panel for text refinement + prompt improvement
-- [x] Ticket system (CRUD, status toggle, filters, priority)
-- [x] Ticket email export (formatted report, copy to clipboard)
-- [x] Microphone volume meter (24-bar frequency visualization)
-- [x] Focus mode + history + cursor append
-- [x] Global HotKey overlay (Ctrl+Shift+Space, 380x220 always-on-top, Record/Copy/Paste)
-- [x] Learning Mode (auto-detect corrections on edit+copy, add to dictionary)
+- [x] Build all views (Main, Settings, Dictionary, Modes, Learning)
+- [x] Speech recording service with GainNode + volume analyser
+- [x] Whisper + Deepgram + Gemini + Browser transcription
+- [x] Gemini + Claude + OpenAI LLM text processing
+- [x] Dictionary word replacements
+- [x] Learning pattern system
+- [x] 3 dictation modes (Clean, Professional, Casual)
+- [x] Electron IPC data persistence
+- [x] Fix overlay architecture (moved to main.tsx, separate component trees)
+- [x] Re-implement mic gain slider (0-200%, GainNode in audio chain)
+- [x] Re-implement mode cycling in overlay indicator
+- [x] Configurable hotkey system (Right Alt default, dropdown in settings)
+- [x] Hold-to-record + double-tap hands-free
+- [x] Floating indicator redesign (mic icon, audio bars, mode badge, LIVE dot)
+- [x] Fix white box overlay bug (transparent body for indicator window)
+- [x] Improve LLM prompts for transcription accuracy
+- [x] Git repo + GitHub remote (ConnectorOfKnowledge/VoiceType)
