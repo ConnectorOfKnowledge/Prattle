@@ -706,6 +706,13 @@ ipcMain.handle('get-app-version', () => {
   return app.getVersion()
 })
 
+// Open external URL (for Stripe checkout, portal, etc.)
+ipcMain.handle('open-external-url', (_, url: string) => {
+  const { shell } = require('electron')
+  shell.openExternal(url)
+  return true
+})
+
 // Update hotkey — re-parse the new hotkey string so it takes effect immediately
 ipcMain.handle('update-hotkey', (_, hotkey: string) => {
   activeHotkey = parseHotkeyString(hotkey)

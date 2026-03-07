@@ -229,12 +229,12 @@ export async function transcribeWithGemini(audioBlob: Blob, apiKey: string): Pro
               }
             },
             {
-              text: 'Transcribe this audio exactly as spoken. Return ONLY the transcribed text, nothing else. No quotes, no labels, no commentary.'
+              text: 'You are a speech-to-text transcription tool. Listen to the audio and transcribe EXACTLY what the speaker says, word for word. Output ONLY the spoken words. Do not add, remove, or change any words. Do not add commentary, labels, or formatting. If the audio is unclear, transcribe your best guess of what was said. If there is silence or no speech, respond with an empty string.'
             }
           ]
         }],
         generationConfig: {
-          temperature: 0.1,
+          temperature: 0,
           maxOutputTokens: 2048,
         }
       })

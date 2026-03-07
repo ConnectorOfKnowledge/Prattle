@@ -1,8 +1,8 @@
 import { useAppStore } from '../stores/appStore'
-import { HiCog6Tooth, HiBookOpen, HiMicrophone, HiAdjustmentsHorizontal } from 'react-icons/hi2'
+import { HiCog6Tooth, HiBookOpen, HiMicrophone, HiAdjustmentsHorizontal, HiUser } from 'react-icons/hi2'
 
 export default function Header() {
-  const { currentView, setCurrentView } = useAppStore()
+  const { currentView, setCurrentView, user } = useAppStore()
 
   const navItems = [
     { id: 'main' as const, label: 'Dictate', icon: HiMicrophone },
@@ -20,7 +20,7 @@ export default function Header() {
         <span className="font-semibold text-cd-text text-sm">VoiceType</span>
       </div>
 
-      <nav className="flex items-center gap-0.5">
+      <nav className="flex items-center gap-0.5 flex-1">
         {navItems.map(item => (
           <button
             key={item.id}
@@ -36,6 +36,22 @@ export default function Header() {
           </button>
         ))}
       </nav>
+
+      {/* Account button */}
+      <button
+        onClick={() => setCurrentView(user ? 'account' : 'auth')}
+        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-all duration-150
+          ${currentView === 'account' || currentView === 'auth'
+            ? 'bg-cd-accent/20 text-cd-accent'
+            : 'text-cd-subtle hover:text-cd-text hover:bg-white/5'
+          }`}
+      >
+        <HiUser className="w-4 h-4" />
+        <span>{user ? 'Account' : 'Sign In'}</span>
+        {user?.subscriptionStatus === 'active' && (
+          <span className="w-2 h-2 rounded-full bg-green-400"></span>
+        )}
+      </button>
     </header>
   )
 }

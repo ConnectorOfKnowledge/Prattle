@@ -4,14 +4,60 @@ import MainView from './components/MainView'
 import SettingsView from './components/SettingsView'
 import DictionaryView from './components/DictionaryView'
 import ModesView from './components/ModesView'
+import AuthView from './components/AuthView'
+import AccountView from './components/AccountView'
 import Header from './components/Header'
+import { getSession, getSubscriptionStatus, onAuthStateChange } from './services/authService'
 
 export default function App() {
-  const { currentView, loadAllData, settings } = useAppStore()
+  const { currentView, loadAllData, settings, setUser, setIsCheckingAuth } = useAppStore()
 
   useEffect(() => {
     loadAllData()
-  }, [loadAllData])
+
+    // Check for existing auth session
+    const checkAuth = async () => {
+      setIsCheckingAuth(true)
+      try {
+        const session = await getSession()
+        if (session) {
+          const sub = await getSubscriptionStatus()
+          setUser({
+            id: session.user.id,
+            email: session.user.email || '',
+            subscriptionStatus: sub.status,
+            plan: sub.plan,
+            currentPeriodEnd: sub.currentPeriodEnd,
+            cancelAtPeriodEnd: sub.cancelAtPeriodEnd,
+          })
+        }
+      } catch {
+        // No session — that's fine, free tier
+      } finally {
+        setIsCheckingAuth(false)
+      }
+    }
+    checkAuth()
+
+    // Listen for auth changes (login/logout)
+    const cleanup = onAuthStateChange(async (session) => {
+      if (session) {
+        const sub = await getSubscriptionStatus()
+        setUser({
+          id: session.user.id,
+          email: session.user.email || '',
+          subscriptionStatus: sub.status,
+          plan: sub.plan,
+          currentPeriodEnd: sub.currentPeriodEnd,
+          cancelAtPeriodEnd: sub.cancelAtPeriodEnd,
+        })
+      } else {
+        setUser(null)
+      }
+    })
+
+    return cleanup
+  }, [])
 
   // Show loading while data loads
   if (!settings) {
@@ -33,6 +79,8 @@ export default function App() {
         {currentView === 'modes' && <div className="h-full overflow-y-auto"><ModesView /></div>}
         {currentView === 'settings' && <div className="h-full overflow-y-auto"><SettingsView /></div>}
         {currentView === 'dictionary' && <div className="h-full overflow-y-auto"><DictionaryView /></div>}
+        {currentView === 'auth' && <div className="h-full overflow-y-auto"><AuthView /></div>}
+        {currentView === 'account' && <div className="h-full overflow-y-auto"><AccountView /></div>}
       </main>
     </div>
   )

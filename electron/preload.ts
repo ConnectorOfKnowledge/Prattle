@@ -58,4 +58,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // App version
   getAppVersion: () => ipcRenderer.invoke('get-app-version'),
+
+  // External URL (for Stripe checkout, portal, etc.)
+  openExternalUrl: (url: string) => ipcRenderer.invoke('open-external-url', url),
 })

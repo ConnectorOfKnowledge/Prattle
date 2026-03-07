@@ -18,6 +18,15 @@ export interface Settings {
   startOnLogin: boolean
 }
 
+export interface UserProfile {
+  id: string
+  email: string
+  subscriptionStatus: 'active' | 'canceled' | 'past_due' | 'none'
+  plan: 'monthly' | 'annual' | 'free'
+  currentPeriodEnd?: string
+  cancelAtPeriodEnd?: boolean
+}
+
 export interface Dictionary {
   replacements: Record<string, string>
 }
@@ -75,6 +84,8 @@ declare global {
       onUpdateStatus: (callback: (status: string, info?: any) => void) => () => void
       // App version
       getAppVersion: () => Promise<string>
+      // External URL
+      openExternalUrl: (url: string) => Promise<boolean>
     }
   }
 }

@@ -73,6 +73,7 @@ export default function SettingsView() {
         <h3 className="font-medium text-cd-text mb-3">Speech-to-Text Provider</h3>
         <div className="space-y-2">
           {[
+            { id: 'browser', name: 'Browser Built-in', desc: 'Free, no API key needed. Uses Chrome speech recognition.' },
             { id: 'gemini', name: 'Google Gemini', desc: 'Uses your Gemini API key. Free tier available.' },
             { id: 'whisper', name: 'OpenAI Whisper', desc: 'Best accuracy, ~$0.006/min' },
             { id: 'deepgram', name: 'Deepgram Nova-2', desc: 'Fast & accurate, real-time capable' },

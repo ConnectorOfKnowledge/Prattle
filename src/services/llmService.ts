@@ -3,6 +3,59 @@
 import type { Settings, Dictionary, LearnedPattern, ChatMessage } from '../types'
 import { BASE_RULES, DICTATION_MODES } from '../constants/modes'
 
+// Build the system prompt and user message for text processing (used by both direct and proxy paths)
+export function buildProcessPrompt(
+  rawText: string,
+  modeIndex: number,
+  dictionary: Dictionary,
+  learnedPatterns: LearnedPattern[],
+  settings: Settings
+): { systemPrompt: string; userMessage: string; processedText: string } | null {
+  const mode = DICTATION_MODES[modeIndex]
+  if (!mode) return null
+
+  // Apply dictionary replacements first
+  const text = applyDictionary(rawText, dictionary)
+
+  // Build system prompt from base rules + mode + custom prompt override + learned patterns
+  const customPrompt = settings.customPrompts?.[modeIndex]
+  const modeDescription = customPrompt || mode.description
+
+  let systemPrompt = `${BASE_RULES}\n\nMODE: ${mode.name}\n${modeDescription}`
+
+  // Add learned patterns that apply to this mode
+  const activePatterns = learnedPatterns.filter(p =>
+    p.active && (p.platform === 'all' || p.platform === mode.id)
+  )
+
+  if (activePatterns.length > 0) {
+    const patternsText = activePatterns
+      .map(p => `- ${p.description}: ${p.rule}`)
+      .join('\n')
+    systemPrompt += `\n\nAdditionally, apply these learned preferences from the user:\n${patternsText}`
+  }
+
+  const userMessage = `[Voice dictation transcription to clean up]:\n${text}`
+
+  return { systemPrompt, userMessage, processedText: text }
+}
+
+// Build the system prompt for rewrite mode (used by both direct and proxy paths)
+export function buildRewritePrompt(
+  originalText: string,
+  instruction: string,
+): { systemPrompt: string; userMessage: string } {
+  const systemPrompt = `You are a text editor. The user previously dictated the following text:
+
+"${originalText}"
+
+The user has now spoken a modification instruction. Apply their requested changes to the original text.
+Preserve meaning and tone unless the instruction specifically asks to change it.
+Output ONLY the modified text. No commentary, no preamble, no quotes.`
+
+  return { systemPrompt, userMessage: instruction }
+}
+
 // Process text through the selected LLM using a mode index
 export async function processText(
   rawText: string,

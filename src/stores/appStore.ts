@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { Settings, Dictionary, LearnedPatterns, ChatMessage } from '../types'
+import type { Settings, Dictionary, LearnedPatterns, ChatMessage, UserProfile } from '../types'
 import type { RecordingState } from '../constants/modes'
 
 interface AppState {
@@ -8,13 +8,18 @@ interface AppState {
   dictionary: Dictionary | null
   learnedPatterns: LearnedPatterns | null
 
+  // Auth state
+  user: UserProfile | null
+  isAuthenticated: boolean
+  isCheckingAuth: boolean
+
   // UI state
   recordingState: RecordingState
   rawText: string
   processedText: string
   editedText: string
   lastCommittedText: string
-  currentView: 'main' | 'settings' | 'dictionary' | 'modes'
+  currentView: 'main' | 'settings' | 'dictionary' | 'modes' | 'account' | 'auth'
   statusMessage: string
   recordingDuration: number
 
@@ -36,6 +41,11 @@ interface AppState {
   setRecordingDuration: (duration: number) => void
   clearText: () => void
 
+  // Auth actions
+  setUser: (user: UserProfile | null) => void
+  setIsAuthenticated: (auth: boolean) => void
+  setIsCheckingAuth: (checking: boolean) => void
+
   // Chat panel actions
   setChatPanelOpen: (open: boolean) => void
   addChatMessage: (message: ChatMessage) => void
@@ -53,6 +63,11 @@ export const useAppStore = create<AppState>((set, get) => ({
   settings: null,
   dictionary: null,
   learnedPatterns: null,
+
+  // Auth state
+  user: null,
+  isAuthenticated: false,
+  isCheckingAuth: false,
 
   // UI state
   recordingState: 'idle',
@@ -86,6 +101,11 @@ export const useAppStore = create<AppState>((set, get) => ({
     editedText: '',
     lastCommittedText: '',
   }),
+
+  // Auth actions
+  setUser: (user) => set({ user, isAuthenticated: !!user }),
+  setIsAuthenticated: (isAuthenticated) => set({ isAuthenticated }),
+  setIsCheckingAuth: (isCheckingAuth) => set({ isCheckingAuth }),
 
   // Chat panel actions
   setChatPanelOpen: (open) => set({ chatPanelOpen: open }),

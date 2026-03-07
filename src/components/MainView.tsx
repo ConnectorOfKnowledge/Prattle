@@ -1,7 +1,8 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
 import { useAppStore } from '../stores/appStore'
 import { speechService, transcribeWithWhisper, transcribeWithDeepgram, transcribeWithGemini, transcribeWithBrowser, stopBrowserTranscription } from '../services/speechService'
-import { processText, rewriteText, analyzeEdits } from '../services/llmService'
+import { processText, rewriteText, analyzeEdits, buildProcessPrompt, buildRewritePrompt } from '../services/llmService'
+import { transcribeViaProxy, processTextViaProxy } from '../services/proxyService'
 import { DICTATION_MODES } from '../constants/modes'
 import type { RecordingState } from '../constants/modes'
 import {
@@ -154,12 +155,21 @@ export default function MainView() {
       let transcription = ''
       const speechProvider = settings.speechProvider
 
+      // Check if user is on paid tier (route through proxy)
+      const userState = useAppStore.getState()
+      const isPaidUser = userState.user?.subscriptionStatus === 'active'
+
       if (speechProvider === 'browser') {
         stopBrowserTranscription()
         speechService.stopVisualization()
         transcription = browserTranscriptRef.current ? await browserTranscriptRef.current : ''
         browserTranscriptRef.current = null
+      } else if (isPaidUser) {
+        // Paid tier: route through proxy server
+        const audioBlob = await speechService.stopRecording()
+        transcription = await transcribeViaProxy(audioBlob, speechProvider)
       } else {
+        // Free tier: direct API calls with user's own keys
         const audioBlob = await speechService.stopRecording()
 
         if (speechProvider === 'gemini') {
@@ -187,12 +197,20 @@ export default function MainView() {
         // Rewrite mode: use the transcription as an instruction to modify lastCommittedText
         setStatusMessage('Rewriting...')
         const currentCommitted = useAppStore.getState().lastCommittedText
-        const rewritten = await rewriteText(currentCommitted, transcription, settings)
+
+        let rewritten: string
+        if (isPaidUser) {
+          // Paid tier: route through proxy
+          const { systemPrompt, userMessage } = buildRewritePrompt(currentCommitted, transcription)
+          rewritten = await processTextViaProxy(userMessage, systemPrompt, settings.llmProvider)
+        } else {
+          rewritten = await rewriteText(currentCommitted, transcription, settings)
+        }
+
         setProcessedText(rewritten)
         setLastCommittedText(rewritten)
 
         if (wasHotkey) {
-          // Auto-type the rewritten text
           await window.electronAPI.autoTypeText(rewritten)
         }
 
@@ -203,19 +221,37 @@ export default function MainView() {
         setStatusMessage('Cleaning your text...')
 
         const modeIndex = settings.currentModeIndex
-        const finalText = await processText(
-          transcription,
-          modeIndex,
-          dictionary || { replacements: {} },
-          learnedPatterns?.patterns || [],
-          settings
-        )
+        let finalText: string
+
+        if (isPaidUser) {
+          // Paid tier: build prompt locally, process via proxy
+          const promptData = buildProcessPrompt(
+            transcription, modeIndex,
+            dictionary || { replacements: {} },
+            learnedPatterns?.patterns || [],
+            settings
+          )
+          if (promptData) {
+            finalText = await processTextViaProxy(
+              promptData.userMessage, promptData.systemPrompt, settings.llmProvider
+            )
+          } else {
+            finalText = transcription
+          }
+        } else {
+          // Free tier: direct API calls
+          finalText = await processText(
+            transcription, modeIndex,
+            dictionary || { replacements: {} },
+            learnedPatterns?.patterns || [],
+            settings
+          )
+        }
 
         setProcessedText(finalText)
         setLastCommittedText(finalText)
 
         if (wasHotkey) {
-          // Auto-type the processed text into the active field
           await window.electronAPI.autoTypeText(finalText)
         }
 
