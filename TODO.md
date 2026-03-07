@@ -1,20 +1,21 @@
-# VoiceType - TODO
+# Prattle (formerly VoiceType) - TODO
 
 ## Priority: Critical (Before Going Live)
-- [ ] Register a domain (voicetype.app, getvoicetype.com, etc.)
+- [ ] Register a domain (prattle.app, getprattle.com, etc.)
 - [ ] Create Stripe account + two products (Monthly $9.95, Annual $69.95)
 - [ ] Run supabase/migration.sql in Supabase SQL Editor
-- [ ] Deploy voicetype-web to Vercel, connect domain, set env vars
+- [ ] Set env vars on Vercel (STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET, SUPABASE keys, price IDs)
 - [ ] Update placeholder values in Electron app code:
   - authService.ts — SUPABASE_URL, SUPABASE_ANON_KEY, PROXY_BASE
   - proxyService.ts — PROXY_BASE domain
   - AccountView.tsx — Stripe price IDs
-- [ ] Rebuild .exe with real credentials
+- [ ] Rebrand Electron app internally (VoiceType → Prattle references, app name, tray tooltip, installer name)
+- [ ] Rebuild .exe with real credentials + Prattle branding
 - [ ] End-to-end test: install → sign up → subscribe → dictate via proxy → manage subscription
 - [ ] Windows code signing certificate (prevents "unknown publisher" warning)
 
 ## Priority: High (Before Public Release)
-- [ ] Consider product name change (voicetype.com taken by direct competitor)
+- [ ] Rename GitHub repo (VoiceType → Prattle)
 - [ ] Onboarding flow — first-launch setup wizard
 - [ ] Error handling for API failures, no mic access, network issues
 - [ ] Demo video / product walkthrough for landing page
@@ -65,3 +66,6 @@
 - [x] Download page with system requirements
 - [x] Pricing section with monthly/annual toggle
 - [x] FAQ section with 8 questions
+- [x] Rebrand landing page from VoiceType to Prattle (47 references across 13 files)
+- [x] Deploy landing page to Vercel (https://voicetype-web.vercel.app)
+- [x] Research alternative product names (chose "Prattle")

@@ -1,7 +1,9 @@
-# VoiceType - Project Status
+# Prattle (formerly VoiceType) - Project Status
 
 ## What It Is
 A desktop voice-to-text app for Windows. Hold a key, speak, release — your words get transcribed, cleaned by AI, and typed directly into whatever app you're in. Think of it as a smarter, faster alternative to Windows dictation.
+
+**Rebranded to "Prattle"** as of Session 8 (2026-03-07) — the name "VoiceType" conflicts with a direct competitor at voicetype.com.
 
 **Commercial Product** — Pricing: $9.95/month or $69.95/year (save 42%). Free tier: bring your own API keys. Paid tier: we provide the AI API backend.
 
@@ -18,11 +20,11 @@ A desktop voice-to-text app for Windows. Hold a key, speak, release — your wor
 - **Payments:** Stripe (Checkout + Customer Portal)
 - **Web/API:** Next.js 16 on Vercel (landing page + API proxy)
 
-## Current State (2026-03-07, Session 7)
-**Status: Phase 2 complete — subscription infrastructure built, landing page live, ready for deployment**
+## Current State (2026-03-07, Session 8)
+**Status: Rebranded to Prattle, landing page deployed to Vercel, ready for final setup steps**
 
 ### What's Built & Working
-#### Desktop App (VoiceType.exe)
+#### Desktop App (Electron — still branded "VoiceType" internally, needs rebrand)
 - [x] **Hold-to-Record hotkey** — Right Alt (configurable). Hold to record, release to process + auto-type
 - [x] **Double-tap hands-free** — Double-tap Right Alt for continuous recording, tap once to stop
 - [x] **Floating indicator overlay** — Shows recording state, mode name, duration, animated audio bars, "LIVE" badge
@@ -44,8 +46,10 @@ A desktop voice-to-text app for Windows. Hold a key, speak, release — your wor
 - [x] **Proxy routing** — Paid users → API proxy (no keys needed), Free → BYOK direct calls
 - [x] **Data persistence** — All settings/data as JSON in %AppData%\voicetype-data
 
-#### Web Project (voicetype-web)
+#### Web Project (voicetype-web → now "Prattle" branding)
 - [x] **Landing page** — Full marketing page with Direction B design (warm cream, amber/teal, serif headlines)
+- [x] **Rebranded to Prattle** — All 13 source files updated, all 47 references changed
+- [x] **Deployed to Vercel** — Live at https://voicetype-web.vercel.app
 - [x] **Hero section** — Animated before/after demo showing messy speech → clean text
 - [x] **Features section** — 6 feature cards (modes, AI learning, voice rewrite, dictionary, hotkey, providers)
 - [x] **How It Works** — 3-step visual walkthrough
@@ -60,25 +64,28 @@ A desktop voice-to-text app for Windows. Hold a key, speak, release — your wor
 - [x] **Lazy client init** — Supabase/Stripe clients use Proxy pattern (build without env vars)
 
 ### What Lonnie Needs to Do (Before Going Live)
-1. **Register a domain** — e.g., getvoicetype.com (note: voicetype.com is taken by a competitor)
+1. **Register a domain** — prattle.app or similar (prattle.com likely taken)
 2. **Create Stripe account** at stripe.com
-3. **Create two Stripe products** — "VoiceType Monthly" ($9.95/mo) and "VoiceType Annual" ($69.95/yr)
+3. **Create two Stripe products** — "Prattle Monthly" ($9.95/mo) and "Prattle Annual" ($69.95/yr)
 4. **Run Supabase migration** — Execute supabase/migration.sql in Supabase SQL Editor
-5. **Deploy voicetype-web to Vercel** — Connect GitHub repo, set env vars
-6. **Update placeholder values** in code:
+5. **Set env vars on Vercel** — STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET, SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, pricing IDs
+6. **Update placeholder values** in Electron app code:
    - `src/services/authService.ts` — SUPABASE_URL, SUPABASE_ANON_KEY, PROXY_BASE
    - `src/services/proxyService.ts` — PROXY_BASE domain
    - `src/components/AccountView.tsx` — Stripe price IDs
+7. **Rebrand Electron app** — Update internal references from VoiceType to Prattle
+8. **Rebuild .exe with real credentials**
+9. **Rename GitHub repo** — VoiceType → Prattle (or create new repo)
 
 ### Known Issues
 - First press of hotkey shows blank indicator briefly (window created before React mounts)
 - Audio bars in indicator are CSS animation only, not reactive to actual mic input
 - GPU cache warnings when running from Google Drive (cosmetic only)
-- Name conflict: "VoiceType AI" exists at voicetype.com — consider differentiating or renaming
+- Electron app still internally branded as "VoiceType" — needs rebrand pass
 
 ## Repos
-- **Desktop app:** ConnectorOfKnowledge/VoiceType (private)
-- **Web/API:** ConnectorOfKnowledge/voicetype-web (private)
+- **Desktop app:** ConnectorOfKnowledge/VoiceType (private) — needs rename to Prattle
+- **Web/API:** ConnectorOfKnowledge/voicetype-web (private) — already rebranded to Prattle
 
 ## Key Files — Desktop App
 ```
