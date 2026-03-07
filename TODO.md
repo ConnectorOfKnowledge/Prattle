@@ -1,32 +1,32 @@
 # VoiceType - TODO
 
-## Priority: Critical (Ship Blockers)
-- [ ] Fix first-press blank indicator (pre-create window on app start, keep hidden)
-- [ ] Build API proxy server so users don't need their own API keys
-- [ ] Supabase auth system (user accounts, subscription status)
-- [ ] Stripe subscription integration ($19.95/mo or $89/yr)
-- [ ] License verification check on app launch
+## Priority: Critical (Before Going Live)
+- [ ] Register a domain (voicetype.app, getvoicetype.com, etc.)
+- [ ] Create Stripe account + two products (Monthly $9.95, Annual $69.95)
+- [ ] Run supabase/migration.sql in Supabase SQL Editor
+- [ ] Deploy voicetype-web to Vercel, connect domain, set env vars
+- [ ] Update placeholder values in Electron app code:
+  - authService.ts — SUPABASE_URL, SUPABASE_ANON_KEY, PROXY_BASE
+  - proxyService.ts — PROXY_BASE domain
+  - AccountView.tsx — Stripe price IDs
+- [ ] Rebuild .exe with real credentials
+- [ ] End-to-end test: install → sign up → subscribe → dictate via proxy → manage subscription
 - [ ] Windows code signing certificate (prevents "unknown publisher" warning)
-- [ ] Auto-updater via electron-updater + GitHub Releases
-- [ ] Package .exe installer with electron-builder (NSIS)
-- [ ] App icon and branding
 
 ## Priority: High (Before Public Release)
-- [ ] Make audio bars reactive to actual mic input (pipe analyser data to indicator)
-- [ ] System tray icon — run in background, show/hide from tray
-- [ ] Onboarding flow — first-launch setup wizard (create account, enter payment)
+- [ ] Consider product name change (voicetype.com taken by direct competitor)
+- [ ] Onboarding flow — first-launch setup wizard
 - [ ] Error handling for API failures, no mic access, network issues
-- [ ] Usage tracking + rate limiting on API proxy
-- [ ] Landing page with Stripe checkout + download link
-- [ ] Android version (React Native / Expo port) — Play Store listing ($25 one-time fee)
+- [ ] Demo video / product walkthrough for landing page
+- [ ] Make audio bars reactive to actual mic input (pipe analyser data to indicator)
 
 ## Priority: Medium (Post-Launch Polish)
-- [ ] Demo video / product walkthrough for marketing
-- [ ] Reactive volume meter in indicator overlay
 - [ ] Voice command shortcuts ("new paragraph", "delete that")
 - [ ] Streaming transcription with Deepgram (real-time)
 - [ ] Export transcription history
 - [ ] Template system for common text patterns
+- [ ] Reactive volume meter in indicator overlay
+- [ ] Android version (React Native / Expo)
 
 ## Priority: Low (Future Ideas)
 - [ ] Mac version
@@ -45,12 +45,23 @@
 - [x] Learning pattern system
 - [x] 3 dictation modes (Clean, Professional, Casual)
 - [x] Electron IPC data persistence
-- [x] Fix overlay architecture (moved to main.tsx, separate component trees)
-- [x] Re-implement mic gain slider (0-200%, GainNode in audio chain)
+- [x] Fix overlay architecture (moved to main.tsx)
+- [x] Re-implement mic gain slider (0-200%)
 - [x] Re-implement mode cycling in overlay indicator
-- [x] Configurable hotkey system (Right Alt default, dropdown in settings)
+- [x] Configurable hotkey system (Right Alt default)
 - [x] Hold-to-record + double-tap hands-free
-- [x] Floating indicator redesign (mic icon, audio bars, mode badge, LIVE dot)
-- [x] Fix white box overlay bug (transparent body for indicator window)
-- [x] Improve LLM prompts for transcription accuracy
-- [x] Git repo + GitHub remote (ConnectorOfKnowledge/VoiceType)
+- [x] Floating indicator redesign
+- [x] System tray icon + run in background
+- [x] Auto-start on login
+- [x] Auto-updater via electron-updater + GitHub Releases
+- [x] Package .exe installer (NSIS, 97 MB)
+- [x] App icon and branding
+- [x] Supabase auth system (user accounts, subscription status)
+- [x] Stripe subscription integration ($9.95/mo, $69.95/yr)
+- [x] API proxy server (Next.js on Vercel)
+- [x] Proxy vs BYOK routing in Electron app
+- [x] Auth views (AuthView, AccountView)
+- [x] Landing page (Direction B design: warm cream, serif, amber/teal)
+- [x] Download page with system requirements
+- [x] Pricing section with monthly/annual toggle
+- [x] FAQ section with 8 questions

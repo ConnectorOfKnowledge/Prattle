@@ -1,12 +1,18 @@
 # VoiceType - Ideas Parking Lot
 
 ## Business Model
-- **Subscription:** $19.95/month or $89/year (competitor charges $30/mo or $100/yr)
-- **We provide the API backend** — users don't need their own keys
-- **API proxy server** routes through our Whisper/Gemini keys, tracks usage
-- **Estimated cost per active user:** $5-8/month (heavy), $2-3/month (light)
-- **Margin at $19.95/mo:** $12-15/user on heavy users, more on light users
-- **Margin at $89/yr ($7.42/mo):** Tighter but works for light-moderate users
+- **Subscription:** $9.95/month or $69.95/year (save 42%)
+- **Free tier:** Bring your own API keys (existing behavior, no account needed)
+- **Paid tier:** We provide the AI backend, no keys needed
+- **API proxy server** on Vercel routes through our API keys, tracks usage
+- **Estimated cost per active user:** $1-2/month (Gemini), $5-6/month (Whisper + Claude)
+- **Margin at $9.95/mo:** $5-8/user after Stripe fees
+- **Break-even:** 3-4 monthly subscribers covers $21/mo fixed costs (Vercel Pro + domain)
+
+## Competitor Alert
+- **VoiceType AI** (voicetype.com) — Direct competitor, same name, $11.59/mo, works across apps
+- Consider: name change, strong differentiation, or different target market
+- Our unique angle: BYOK free tier (no competitor offers this)
 
 ## Multi-Platform Strategy
 - **Windows desktop** (current) — Electron, .exe installer
@@ -14,15 +20,12 @@
 - **Mac** — Electron builds for Mac (same codebase, just need code signing)
 - **iOS** — Needs Apple Developer account ($99/yr)
 - **Web app** — Browser-only version (no hotkey, but mic button works)
-- Use this as the first app to establish developer accounts on Play Store, App Store, etc.
-- Once accounts are set up, can publish other apps too
 
 ## Distribution Channels
-- **Own website** — Landing page + Stripe checkout + direct download
-- **Gumroad** — Indie software marketplace, handles payments and delivery
-- **Microsoft Store** — Wider reach for Windows users
-- **Google Play Store** — Android version
-- **Apple App Store** — iOS version (future)
+- **Own website** — Landing page + download link + in-app subscription
+- **GitHub Releases** — Auto-updater serves updates from here
+- **Microsoft Store** — Wider reach for Windows users (future)
+- **Google Play Store** — Android version (future)
 
 ## Marketing Ideas
 - "VoiceType vs Windows Dictation" comparison content
@@ -30,7 +33,6 @@
 - Target audiences: writers, students, professionals with RSI, accessibility users
 - Reddit (r/productivity, r/speechrecognition), Twitter/X, TikTok demos
 - SEO landing page targeting "voice to text app for windows"
-- Free trial (7-14 days) to reduce friction
 - Affiliate/referral program
 
 ## Future Features
@@ -55,9 +57,10 @@
 - Better error recovery with retry logic for API calls
 - Consider WebSocket for streaming audio to API proxy
 
-## Architecture Notes
-- Indicator detection lives in main.tsx (separate component tree from App)
-- Transparent overlay achieved by clearing body background + classes for indicator window
-- Hotkey system uses uiohook-napi with configurable key mapping and double-tap detection
-- Audio chain: MediaStream → GainNode → AnalyserNode
-- For Android port: no global hotkey possible, would need a floating bubble or notification bar button
+## Landing Page Enhancements
+- Add testimonials section (once we have users)
+- Add social proof logos (once we have notable users)
+- Add email signup for Mac/Linux waitlist
+- Add live demo widget (record in browser, show before/after)
+- A/B test CTA button text
+- Add video walkthrough to hero section

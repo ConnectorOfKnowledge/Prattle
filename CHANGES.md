@@ -1,5 +1,79 @@
 # VoiceType - Change Log
 
+## 2026-03-07 — Session 7: Phase 2 Complete — Subscriptions, API Proxy, Landing Page
+
+### Context
+Phase 1 was done (packaged .exe, system tray, auto-start, auto-update). This session built the entire revenue infrastructure: user accounts, Stripe subscriptions, API proxy, and a full landing page.
+
+### Business Decisions
+- **Pricing finalized:** $9.95/month or $69.95/year (save 42%)
+- **Free tier:** Bring your own API keys (existing behavior)
+- **Paid tier:** We provide the AI backend via API proxy on Vercel
+- **Fixed costs:** ~$21/month (Vercel Pro $20 + domain ~$1)
+- **Break-even:** 3-4 monthly subscribers
+
+### New Project: voicetype-web (Next.js 16 on Vercel)
+**Landing Page — Direction B: "The Confident Challenger"**
+- Warm cream background (#FDF8F3) with amber (#D97706) and teal (#0D9488) accents
+- Source Serif 4 for headlines (editorial warmth) + Geist for body text
+- Animated hero: before/after demo showing messy speech → clean polished text
+- Social proof stats bar (3x faster, 2+ hours saved, any app)
+- "How It Works" — 3-step cards with subtle background numbers (01, 02, 03)
+- 6 feature cards with alternating amber/teal icons
+- 4 use case cards (Email, Slack, Documents, Code) with you-say/you-get examples
+- Pricing section with monthly/annual toggle, Free vs Pro comparison
+- FAQ accordion with 8 common questions
+- Dark CTA section: "Stop typing. Start speaking."
+- Sticky navbar with scroll-aware backdrop blur
+- Download page with quick setup guide, system requirements, feature checklist
+
+**API Routes:**
+- `/api/speech/transcribe` — Proxy to Gemini/Whisper/Deepgram with JWT auth + rate limiting
+- `/api/llm/process` — Single-turn LLM proxy (Gemini/Claude/OpenAI)
+- `/api/llm/chat` — Multi-turn LLM proxy
+- `/api/stripe/checkout` — Creates Stripe Checkout session
+- `/api/stripe/portal` — Creates Stripe Customer Portal session
+- `/api/stripe/webhook` — Handles checkout.completed, subscription.updated/deleted, payment_failed
+- `/api/auth/subscription` — Returns subscription status for authenticated user
+
+**Infrastructure:**
+- Supabase SQL migration (profiles, subscriptions, usage tables with RLS)
+- Lazy Supabase/Stripe client initialization via Proxy pattern (builds without env vars)
+- Rate limiting: 500 speech + 1000 LLM requests per day per user
+
+### Changes to Electron App
+**New Files:**
+- `src/services/authService.ts` — Supabase auth (signup, login, logout, session, subscription)
+- `src/services/proxyService.ts` — API proxy client (transcribeViaProxy, processTextViaProxy, chatViaProxy)
+- `src/components/AuthView.tsx` — Login/signup form with "Continue free" option
+- `src/components/AccountView.tsx` — Subscription management, upgrade buttons, Stripe portal
+
+**Modified Files:**
+- `src/App.tsx` — Auth gate, session check on mount, auth state listener
+- `src/stores/appStore.ts` — Added user/auth state (UserProfile, isAuthenticated, isCheckingAuth)
+- `src/types/index.ts` — Added UserProfile interface, openExternalUrl to electronAPI
+- `src/components/Header.tsx` — Account/Sign In button with green dot for active subscribers
+- `src/components/MainView.tsx` — Proxy vs BYOK routing (paid → proxy, free → direct API)
+- `src/services/llmService.ts` — Exported buildProcessPrompt(), buildRewritePrompt()
+- `src/services/speechService.ts` — Gemini transcription improvements (temp 0, strict prompt)
+- `src/components/SettingsView.tsx` — Added "Browser Built-in" speech provider option
+- `electron/preload.ts` — Added openExternalUrl IPC bridge
+- `electron/main.ts` — Added open-external-url handler via shell.openExternal()
+- `package.json` — Added @supabase/supabase-js dependency
+
+### Bug Fixes
+- Fixed Gemini speech hallucination (temperature 0, stricter transcription prompt)
+- Fixed Stripe v20 type errors (Invoice.subscription, Subscription.current_period_*)
+- Fixed Stripe API version (2026-02-25.clover)
+- Fixed build crash without env vars (lazy Supabase/Stripe client via Proxy pattern)
+- Attempted gemini-2.0-flash (404 — "no longer available"), reverted to gemini-2.5-flash
+
+### Commits
+1. `7bebfe7` — Add Phase 2 subscription infrastructure (Electron app, 16 files, +928 lines)
+2. `c2fc569` — Add landing page with Direction B design (voicetype-web, 19 files, +1417 lines)
+
+---
+
 ## 2026-03-06 — Session 6: Prompt Fixes, Indicator Redesign, Commercial Product Decision
 
 ### Context
