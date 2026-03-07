@@ -41,4 +41,21 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.removeListener('recording-command', handler)
     }
   },
+
+  // Auto-start on login
+  setStartOnLogin: (enabled: boolean) => ipcRenderer.invoke('set-start-on-login', enabled),
+  getStartOnLogin: () => ipcRenderer.invoke('get-start-on-login'),
+
+  // Auto-updater
+  checkForUpdates: () => ipcRenderer.send('check-for-updates'),
+  onUpdateStatus: (callback: (status: string, info?: any) => void) => {
+    const handler = (_event: any, status: string, info?: any) => callback(status, info)
+    ipcRenderer.on('update-status', handler)
+    return () => {
+      ipcRenderer.removeListener('update-status', handler)
+    }
+  },
+
+  // App version
+  getAppVersion: () => ipcRenderer.invoke('get-app-version'),
 })

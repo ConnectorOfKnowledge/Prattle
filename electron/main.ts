@@ -1,8 +1,9 @@
-import { app, BrowserWindow, ipcMain, dialog, clipboard, screen } from 'electron'
+import { app, BrowserWindow, ipcMain, dialog, clipboard, screen, Tray, Menu, nativeImage } from 'electron'
 import path from 'path'
 import fs from 'fs'
 import { exec } from 'child_process'
 import { uIOhook, UiohookKey } from 'uiohook-napi'
+import { autoUpdater } from 'electron-updater'
 
 const isDev = !app.isPackaged
 
@@ -43,6 +44,8 @@ function writeJsonFile(filename: string, data: any): void {
 
 let mainWindow: BrowserWindow | null = null
 let indicatorWindow: BrowserWindow | null = null
+let tray: Tray | null = null
+let isQuitting = false
 
 // ---- Hotkey state tracking ----
 let ctrlDown = false
@@ -154,6 +157,14 @@ function createWindow() {
   } else {
     mainWindow.loadFile(path.join(__dirname, '../dist/index.html'))
   }
+
+  // Close button hides to tray instead of quitting
+  mainWindow.on('close', (event) => {
+    if (!isQuitting) {
+      event.preventDefault()
+      mainWindow?.hide()
+    }
+  })
 
   mainWindow.on('closed', () => {
     mainWindow = null
@@ -320,12 +331,150 @@ function setupHotkeySystem() {
   uIOhook.start()
 }
 
+function createTray() {
+  // Load icon from build directory or use a fallback
+  const iconPath = isDev
+    ? path.join(__dirname, '../build/icon.png')
+    : path.join(process.resourcesPath, 'build', 'icon.png')
+
+  let trayIcon: Electron.NativeImage
+  try {
+    trayIcon = nativeImage.createFromPath(iconPath)
+    // Resize for tray (16x16 on Windows)
+    trayIcon = trayIcon.resize({ width: 16, height: 16 })
+  } catch {
+    // Fallback: create a simple colored square if icon not found
+    trayIcon = nativeImage.createEmpty()
+  }
+
+  tray = new Tray(trayIcon)
+  tray.setToolTip('VoiceType — Voice to Text')
+
+  const settings = readJsonFile('settings.json')
+  const startOnLogin = settings.startOnLogin !== false // default true
+
+  const contextMenu = Menu.buildFromTemplate([
+    {
+      label: 'Show VoiceType',
+      click: () => {
+        if (mainWindow) {
+          mainWindow.show()
+          mainWindow.focus()
+        } else {
+          createWindow()
+        }
+      }
+    },
+    { type: 'separator' },
+    {
+      label: 'Start on Login',
+      type: 'checkbox',
+      checked: startOnLogin,
+      click: (menuItem) => {
+        const enabled = menuItem.checked
+        app.setLoginItemSettings({ openAtLogin: enabled })
+        const s = readJsonFile('settings.json')
+        s.startOnLogin = enabled
+        writeJsonFile('settings.json', s)
+      }
+    },
+    { type: 'separator' },
+    {
+      label: 'Check for Updates',
+      click: () => {
+        autoUpdater.checkForUpdatesAndNotify()
+      }
+    },
+    { type: 'separator' },
+    {
+      label: 'Quit VoiceType',
+      click: () => {
+        isQuitting = true
+        app.quit()
+      }
+    }
+  ])
+
+  tray.setContextMenu(contextMenu)
+
+  // Double-click tray icon → show window
+  tray.on('double-click', () => {
+    if (mainWindow) {
+      mainWindow.show()
+      mainWindow.focus()
+    } else {
+      createWindow()
+    }
+  })
+}
+
+function setupAutoUpdater() {
+  // Don't check for updates in dev mode
+  if (isDev) {
+    console.log('[VoiceType] Dev mode — skipping auto-updater')
+    return
+  }
+
+  autoUpdater.autoDownload = true
+  autoUpdater.autoInstallOnAppQuit = true
+
+  autoUpdater.on('checking-for-update', () => {
+    sendToRenderer('update-status', 'checking')
+  })
+
+  autoUpdater.on('update-available', (info) => {
+    sendToRenderer('update-status', 'available', info)
+  })
+
+  autoUpdater.on('update-not-available', () => {
+    sendToRenderer('update-status', 'up-to-date')
+  })
+
+  autoUpdater.on('download-progress', (progress) => {
+    sendToRenderer('update-status', 'downloading', { percent: Math.round(progress.percent) })
+  })
+
+  autoUpdater.on('update-downloaded', (info) => {
+    sendToRenderer('update-status', 'ready', info)
+  })
+
+  autoUpdater.on('error', (err) => {
+    console.error('[VoiceType] Update error:', err)
+    sendToRenderer('update-status', 'error', err.message)
+  })
+
+  // Check for updates on startup (after a short delay)
+  setTimeout(() => {
+    autoUpdater.checkForUpdatesAndNotify()
+  }, 5000)
+}
+
 app.whenReady().then(() => {
   ensureUserDataDir()
   initializeDefaultData()
+
+  // Check if launched with --hidden flag (auto-start)
+  const startHidden = process.argv.includes('--hidden')
+
   createWindow()
+
+  if (startHidden) {
+    mainWindow?.hide()
+  }
+
   createIndicatorWindow() // Pre-create so it's ready when hotkey fires
+  createTray()
   setupHotkeySystem()
+  setupAutoUpdater()
+
+  // Apply auto-start setting
+  const settings = readJsonFile('settings.json')
+  if (settings.startOnLogin !== false) {
+    app.setLoginItemSettings({
+      openAtLogin: true,
+      args: ['--hidden'] // Start minimized to tray
+    })
+  }
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
@@ -333,7 +482,12 @@ app.whenReady().then(() => {
 })
 
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') app.quit()
+  // Don't quit — tray keeps the app alive
+  // Only quit when isQuitting is true (from tray "Quit" or app.quit())
+})
+
+app.on('before-quit', () => {
+  isQuitting = true
 })
 
 app.on('will-quit', () => {
@@ -354,6 +508,7 @@ function initializeDefaultData() {
       theme: 'dark',
       micGain: 100,
       hotkey: 'RightAlt',
+      startOnLogin: true,
     })
   } else {
     // Migrate existing settings to new format
@@ -393,6 +548,10 @@ function initializeDefaultData() {
     }
     if (settings.micGain === undefined) {
       settings.micGain = 100
+      changed = true
+    }
+    if (settings.startOnLogin === undefined) {
+      settings.startOnLogin = true
       changed = true
     }
 
@@ -517,6 +676,34 @@ ipcMain.on('has-committed-text', (_, hasText: boolean) => {
 // Indicator visibility control from renderer
 ipcMain.on('hide-indicator', () => {
   hideIndicator()
+})
+
+// Auto-start on login
+ipcMain.handle('set-start-on-login', (_, enabled: boolean) => {
+  app.setLoginItemSettings({
+    openAtLogin: enabled,
+    args: enabled ? ['--hidden'] : []
+  })
+  return true
+})
+
+ipcMain.handle('get-start-on-login', () => {
+  const loginSettings = app.getLoginItemSettings()
+  return loginSettings.openAtLogin
+})
+
+// Auto-updater
+ipcMain.on('check-for-updates', () => {
+  if (isDev) {
+    sendToRenderer('update-status', 'dev-mode')
+    return
+  }
+  autoUpdater.checkForUpdatesAndNotify()
+})
+
+// App version
+ipcMain.handle('get-app-version', () => {
+  return app.getVersion()
 })
 
 // Update hotkey — re-parse the new hotkey string so it takes effect immediately

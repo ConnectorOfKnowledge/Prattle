@@ -9,10 +9,21 @@ export default function SettingsView() {
   const [showKeys, setShowKeys] = useState<Record<string, boolean>>({})
   const [saved, setSaved] = useState(false)
   const [dataPath, setDataPath] = useState('')
+  const [appVersion, setAppVersion] = useState('')
+  const [updateStatus, setUpdateStatus] = useState<string>('') // '', 'checking', 'available', 'downloading', 'ready', 'up-to-date', 'error', 'dev-mode'
+  const [updateInfo, setUpdateInfo] = useState<any>(null)
 
   useEffect(() => {
     if (settings) setLocalSettings({ ...settings })
     window.electronAPI.getUserDataPath().then(setDataPath)
+    window.electronAPI.getAppVersion().then(setAppVersion)
+
+    // Listen for update status
+    const cleanup = window.electronAPI.onUpdateStatus((status, info) => {
+      setUpdateStatus(status)
+      if (info) setUpdateInfo(info)
+    })
+    return cleanup
   }, [settings])
 
   if (!localSettings) return null
@@ -246,6 +257,31 @@ export default function SettingsView() {
         </p>
       </div>
 
+      {/* Startup */}
+      <div className="bg-cd-card rounded-2xl border border-white/5 p-5">
+        <h3 className="font-medium text-cd-text mb-3">Startup</h3>
+        <label className="flex items-center justify-between cursor-pointer">
+          <div>
+            <div className="text-sm font-medium text-cd-text">Start on Windows login</div>
+            <div className="text-xs text-cd-subtle">VoiceType launches minimized to the system tray when you log in</div>
+          </div>
+          <div className="relative">
+            <input
+              type="checkbox"
+              checked={localSettings.startOnLogin !== false}
+              onChange={(e) => {
+                updateSetting('startOnLogin', e.target.checked)
+                window.electronAPI.setStartOnLogin(e.target.checked)
+              }}
+              className="sr-only"
+            />
+            <div className={`w-11 h-6 rounded-full transition-colors ${localSettings.startOnLogin !== false ? 'bg-cd-accent' : 'bg-gray-600'}`}>
+              <div className={`w-5 h-5 rounded-full bg-white shadow transform transition-transform mt-0.5 ${localSettings.startOnLogin !== false ? 'translate-x-5.5 ml-[22px]' : 'translate-x-0.5 ml-[2px]'}`}></div>
+            </div>
+          </div>
+        </label>
+      </div>
+
       {/* Data Location */}
       <div className="bg-cd-card rounded-2xl border border-white/5 p-5">
         <h3 className="font-medium text-cd-text mb-2">Data Storage</h3>
@@ -256,6 +292,41 @@ export default function SettingsView() {
         <p className="text-xs text-cd-subtle mt-1">
           All your settings, dictionary, and learned patterns are stored here.
         </p>
+      </div>
+
+      {/* About & Updates */}
+      <div className="bg-cd-card rounded-2xl border border-white/5 p-5">
+        <h3 className="font-medium text-cd-text mb-3">About</h3>
+        <div className="flex items-center justify-between mb-3">
+          <div>
+            <div className="text-sm font-medium text-cd-text">VoiceType</div>
+            <div className="text-xs text-cd-subtle font-mono">v{appVersion || '1.0.0'}</div>
+          </div>
+          <button
+            onClick={() => {
+              setUpdateStatus('checking')
+              window.electronAPI.checkForUpdates()
+            }}
+            disabled={updateStatus === 'checking' || updateStatus === 'downloading'}
+            className="px-4 py-2 rounded-xl text-sm font-medium bg-cd-bg border border-white/10 text-cd-text hover:bg-white/10 transition-all disabled:opacity-50"
+          >
+            {updateStatus === 'checking' ? 'Checking...' :
+             updateStatus === 'downloading' ? `Downloading ${updateInfo?.percent || ''}%` :
+             updateStatus === 'ready' ? 'Restart to Update' :
+             updateStatus === 'up-to-date' ? 'Up to Date' :
+             updateStatus === 'dev-mode' ? 'Dev Mode' :
+             'Check for Updates'}
+          </button>
+        </div>
+        {updateStatus === 'available' && (
+          <p className="text-xs text-green-400">A new version is available and downloading...</p>
+        )}
+        {updateStatus === 'ready' && (
+          <p className="text-xs text-green-400">Update downloaded! Restart VoiceType to install.</p>
+        )}
+        {updateStatus === 'error' && (
+          <p className="text-xs text-red-400">Update check failed. Try again later.</p>
+        )}
       </div>
 
       {/* Save button */}

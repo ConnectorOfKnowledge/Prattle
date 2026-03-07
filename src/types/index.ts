@@ -15,6 +15,7 @@ export interface Settings {
   micGain: number  // 0-200, percentage (100 = normal)
   theme: 'light' | 'dark'
   hotkey: string
+  startOnLogin: boolean
 }
 
 export interface Dictionary {
@@ -66,6 +67,14 @@ declare global {
       readFile: (filePath: string) => Promise<string>
       hideIndicator: () => void
       onRecordingCommand: (callback: (command: string, data?: any) => void) => () => void
+      // Auto-start
+      setStartOnLogin: (enabled: boolean) => Promise<boolean>
+      getStartOnLogin: () => Promise<boolean>
+      // Auto-updater
+      checkForUpdates: () => void
+      onUpdateStatus: (callback: (status: string, info?: any) => void) => () => void
+      // App version
+      getAppVersion: () => Promise<string>
     }
   }
 }
