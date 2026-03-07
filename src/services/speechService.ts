@@ -156,6 +156,8 @@ export class SpeechService {
 
 // Transcribe audio using OpenAI Whisper API
 export async function transcribeWithWhisper(audioBlob: Blob, apiKey: string): Promise<string> {
+  if (audioBlob.size < 2000) return '' // Too small — would hallucinate
+
   const formData = new FormData()
 
   // Whisper expects a file, create one from the blob
@@ -183,6 +185,8 @@ export async function transcribeWithWhisper(audioBlob: Blob, apiKey: string): Pr
 
 // Transcribe using Deepgram API
 export async function transcribeWithDeepgram(audioBlob: Blob, apiKey: string): Promise<string> {
+  if (audioBlob.size < 2000) return '' // Too small — would hallucinate
+
   const arrayBuffer = await audioBlob.arrayBuffer()
 
   const response = await fetch('https://api.deepgram.com/v1/listen?model=nova-2&language=en&smart_format=true&punctuate=true', {
@@ -205,6 +209,13 @@ export async function transcribeWithDeepgram(audioBlob: Blob, apiKey: string): P
 
 // Transcribe audio using Google Gemini (supports audio input natively)
 export async function transcribeWithGemini(audioBlob: Blob, apiKey: string): Promise<string> {
+  // Safety: reject tiny audio blobs that would cause hallucination
+  // A 500ms webm/opus clip is typically 3-5KB; anything under 2KB is likely silence/noise
+  if (audioBlob.size < 2000) {
+    console.log(`[VoiceType] Audio blob too small (${audioBlob.size} bytes), skipping transcription`)
+    return ''
+  }
+
   // Convert audio blob to base64
   const arrayBuffer = await audioBlob.arrayBuffer()
   const base64Audio = btoa(

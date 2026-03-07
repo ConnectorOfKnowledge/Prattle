@@ -29,6 +29,9 @@ export default function MainView() {
   const browserTranscriptRef = useRef<Promise<string> | null>(null)
   const isHotkeyTriggered = useRef(false)
   const isProcessingRef = useRef(false) // Guard against duplicate stop calls
+  const recordingStartTime = useRef<number>(0) // Timestamp when recording started
+
+  const MIN_RECORDING_MS = 500 // Minimum recording duration before we send to API
 
   const isRecording = recordingState === 'recording' || recordingState === 'rewrite_recording'
   const isProcessing = recordingState === 'processing'
@@ -123,6 +126,7 @@ export default function MainView() {
       // Apply mic gain setting
       speechService.setMicGain(settings.micGain ?? 100)
 
+      recordingStartTime.current = Date.now()
       setRecordingState(rewrite ? 'rewrite_recording' : 'recording')
       setStatusMessage(rewrite ? 'Tell me how to change it...' : 'Listening...')
     } catch (error: any) {
@@ -147,6 +151,29 @@ export default function MainView() {
     const wasRewrite = currentRecordingState === 'rewrite_recording'
     const wasHotkey = isHotkeyTriggered.current
     isHotkeyTriggered.current = false
+
+    // Guard: discard recordings shorter than MIN_RECORDING_MS to prevent
+    // speech model hallucination on silent/near-empty audio clips
+    const elapsed = Date.now() - recordingStartTime.current
+    if (elapsed < MIN_RECORDING_MS) {
+      // Stop the mic but don't send to API
+      const speechProvider = settings.speechProvider
+      if (speechProvider === 'browser') {
+        stopBrowserTranscription()
+        speechService.stopVisualization()
+        browserTranscriptRef.current = null
+      } else {
+        await speechService.stopRecording() // discard the audio blob
+      }
+      setStatusMessage('Recording too short — hold longer to dictate')
+      setRecordingState('idle')
+      isProcessingRef.current = false
+      // Hide indicator
+      if (window.electronAPI) {
+        window.electronAPI.hideIndicator?.()
+      }
+      return
+    }
 
     setRecordingState('processing')
     setStatusMessage('Transcribing...')

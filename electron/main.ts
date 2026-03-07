@@ -56,8 +56,10 @@ let lastTriggerPressTime = 0
 let isHoldRecording = false
 let isHandsFreeMode = false
 let hasLastCommittedText = false // Track if there's text available for rewrite
+let stopDelayTimeout: ReturnType<typeof setTimeout> | null = null // Delayed stop for double-tap detection
 
-const DOUBLE_TAP_WINDOW = 400 // ms
+const DOUBLE_TAP_WINDOW = 400 // ms — window between keydown events for double-tap detection
+const STOP_DELAY = 250 // ms — delay before processing on keyup (allows double-tap cancel)
 
 // ---- Configurable hotkey system ----
 // Map friendly key names to uiohook keycodes
@@ -275,7 +277,13 @@ function setupHotkeySystem() {
       lastTriggerPressTime = now
 
       if (timeSinceLastPress < DOUBLE_TAP_WINDOW) {
-        // Double-tap detected: toggle hands-free mode
+        // Double-tap detected: cancel any pending stop from the first tap's release
+        if (stopDelayTimeout) {
+          clearTimeout(stopDelayTimeout)
+          stopDelayTimeout = null
+        }
+
+        // Toggle hands-free mode
         if (isHandsFreeMode) {
           // Stop hands-free recording
           isHandsFreeMode = false
@@ -284,11 +292,12 @@ function setupHotkeySystem() {
           sendToIndicator('recording-command', 'stop')
         } else {
           // Start hands-free recording
+          // Recording is already active from the first tap — just switch to hands-free mode
           isHandsFreeMode = true
           isHoldRecording = false
-          sendToRenderer('recording-command', 'start-handsfree')
           showIndicator()
           sendToIndicator('recording-command', 'start-handsfree')
+          // Don't send start-handsfree to renderer — recording is already running
         }
       } else if (!isHandsFreeMode) {
         // Single press: start hold-to-record
@@ -319,10 +328,17 @@ function setupHotkeySystem() {
       triggerKeyDown = false
 
       if (isHoldRecording && !isHandsFreeMode) {
-        // Immediately stop recording and process
-        isHoldRecording = false
-        sendToRenderer('recording-command', 'stop')
-        sendToIndicator('recording-command', 'stop')
+        // Delay the stop to allow double-tap detection — if a second keydown
+        // comes within DOUBLE_TAP_WINDOW, this timeout gets cancelled and
+        // we switch to hands-free mode instead of processing a ghost recording
+        stopDelayTimeout = setTimeout(() => {
+          stopDelayTimeout = null
+          if (isHoldRecording && !isHandsFreeMode) {
+            isHoldRecording = false
+            sendToRenderer('recording-command', 'stop')
+            sendToIndicator('recording-command', 'stop')
+          }
+        }, STOP_DELAY)
       }
       // If in hands-free mode, keyup is ignored (recording continues until next tap)
     }
