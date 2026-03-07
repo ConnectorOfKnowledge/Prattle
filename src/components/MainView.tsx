@@ -27,6 +27,7 @@ export default function MainView() {
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const browserTranscriptRef = useRef<Promise<string> | null>(null)
   const isHotkeyTriggered = useRef(false)
+  const isProcessingRef = useRef(false) // Guard against duplicate stop calls
 
   const isRecording = recordingState === 'recording' || recordingState === 'rewrite_recording'
   const isProcessing = recordingState === 'processing'
@@ -99,33 +100,6 @@ export default function MainView() {
     return () => cancelAnimationFrame(animId)
   }, [isRecording])
 
-  // Listen for hotkey recording commands from main process
-  useEffect(() => {
-    if (!window.electronAPI?.onRecordingCommand) return
-
-    const cleanup = window.electronAPI.onRecordingCommand((command: string) => {
-      switch (command) {
-        case 'start':
-          isHotkeyTriggered.current = true
-          startRecordingInternal(false)
-          break
-        case 'start-handsfree':
-          isHotkeyTriggered.current = true
-          startRecordingInternal(false)
-          break
-        case 'start-rewrite':
-          isHotkeyTriggered.current = true
-          startRecordingInternal(true)
-          break
-        case 'stop':
-          stopRecordingInternal()
-          break
-      }
-    })
-
-    return cleanup
-  }, [settings, dictionary, learnedPatterns, lastCommittedText])
-
   const formatDuration = (seconds: number) => {
     const m = Math.floor(seconds / 60)
     const s = seconds % 60
@@ -159,7 +133,16 @@ export default function MainView() {
   const stopRecordingInternal = useCallback(async () => {
     if (!settings) return
 
+    // Guard: prevent duplicate stop calls
+    if (isProcessingRef.current) return
+    isProcessingRef.current = true
+
     const currentRecordingState = useAppStore.getState().recordingState
+    if (currentRecordingState !== 'recording' && currentRecordingState !== 'rewrite_recording') {
+      isProcessingRef.current = false
+      return // Not actually recording — ignore stale stop
+    }
+
     const wasRewrite = currentRecordingState === 'rewrite_recording'
     const wasHotkey = isHotkeyTriggered.current
     isHotkeyTriggered.current = false
@@ -243,8 +226,39 @@ export default function MainView() {
       setStatusMessage(`Error: ${error.message}`)
     } finally {
       setRecordingState('idle')
+      isProcessingRef.current = false
     }
   }, [settings, dictionary, learnedPatterns])
+
+  // Keep refs to the latest callback functions so the IPC listener doesn't need re-registering
+  const startRecordingRef = useRef(startRecordingInternal)
+  const stopRecordingRef = useRef(stopRecordingInternal)
+  useEffect(() => { startRecordingRef.current = startRecordingInternal }, [startRecordingInternal])
+  useEffect(() => { stopRecordingRef.current = stopRecordingInternal }, [stopRecordingInternal])
+
+  // Listen for hotkey recording commands from main process — register ONCE on mount
+  useEffect(() => {
+    if (!window.electronAPI?.onRecordingCommand) return
+
+    const cleanup = window.electronAPI.onRecordingCommand((command: string) => {
+      switch (command) {
+        case 'start':
+        case 'start-handsfree':
+          isHotkeyTriggered.current = true
+          startRecordingRef.current(false)
+          break
+        case 'start-rewrite':
+          isHotkeyTriggered.current = true
+          startRecordingRef.current(true)
+          break
+        case 'stop':
+          stopRecordingRef.current()
+          break
+      }
+    })
+
+    return cleanup
+  }, []) // Empty deps — only register once
 
   const handleToggleRecording = useCallback(async () => {
     if (!settings) return

@@ -66,7 +66,7 @@ const KEY_NAME_TO_KEYCODE: Record<string, number> = {
   'End': UiohookKey.End,
   'PageUp': UiohookKey.PageUp,
   'PageDown': UiohookKey.PageDown,
-  'Pause': UiohookKey.Pause,
+  'Pause': 0xE046, // Pause/Break key (not in UiohookKey enum)
   'ScrollLock': UiohookKey.ScrollLock,
   'PrintScreen': UiohookKey.PrintScreen,
   'F1': UiohookKey.F1,
@@ -161,10 +161,7 @@ function createWindow() {
 }
 
 function createIndicatorWindow() {
-  if (indicatorWindow && !indicatorWindow.isDestroyed()) {
-    indicatorWindow.show()
-    return
-  }
+  if (indicatorWindow && !indicatorWindow.isDestroyed()) return
 
   const primaryDisplay = screen.getPrimaryDisplay()
   const { width: screenW } = primaryDisplay.workAreaSize
@@ -184,6 +181,7 @@ function createIndicatorWindow() {
     maximizable: false,
     focusable: false,
     transparent: true,
+    show: false, // Start hidden — pre-created on app launch
     backgroundColor: '#00000000',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -208,6 +206,10 @@ function createIndicatorWindow() {
 function showIndicator() {
   if (!indicatorWindow || indicatorWindow.isDestroyed()) {
     createIndicatorWindow()
+    // If we had to create it, wait for it to load before showing
+    indicatorWindow?.once('ready-to-show', () => {
+      indicatorWindow?.show()
+    })
   } else {
     indicatorWindow.show()
   }
@@ -306,7 +308,7 @@ function setupHotkeySystem() {
       triggerKeyDown = false
 
       if (isHoldRecording && !isHandsFreeMode) {
-        // Release from hold-to-record: stop recording and process
+        // Immediately stop recording and process
         isHoldRecording = false
         sendToRenderer('recording-command', 'stop')
         sendToIndicator('recording-command', 'stop')
@@ -322,6 +324,7 @@ app.whenReady().then(() => {
   ensureUserDataDir()
   initializeDefaultData()
   createWindow()
+  createIndicatorWindow() // Pre-create so it's ready when hotkey fires
   setupHotkeySystem()
 
   app.on('activate', () => {
