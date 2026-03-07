@@ -246,7 +246,7 @@ export async function transcribeWithGemini(audioBlob: Blob, apiKey: string): Pro
         }],
         generationConfig: {
           temperature: 0,
-          maxOutputTokens: 2048,
+          maxOutputTokens: 8192,
         }
       })
     }

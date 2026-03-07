@@ -316,7 +316,7 @@ async function callGemini(text: string, systemPrompt: string, apiKey: string): P
         contents: [{ parts: [{ text }] }],
         generationConfig: {
           temperature: 0.3,
-          maxOutputTokens: 2048,
+          maxOutputTokens: 65536,
         }
       })
     }
@@ -342,7 +342,7 @@ async function callClaude(text: string, systemPrompt: string, apiKey: string): P
     },
     body: JSON.stringify({
       model: 'claude-haiku-4-5-20251001',
-      max_tokens: 2048,
+      max_tokens: 8192,
       system: systemPrompt,
       messages: [{ role: 'user', content: text }],
     })
@@ -371,7 +371,7 @@ async function callOpenAI(text: string, systemPrompt: string, apiKey: string): P
         { role: 'user', content: text },
       ],
       temperature: 0.3,
-      max_tokens: 2048,
+      max_tokens: 16384,
     })
   })
 
