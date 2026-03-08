@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { useAppStore } from './stores/appStore'
 import MainView from './components/MainView'
 import SettingsView from './components/SettingsView'
@@ -7,13 +7,16 @@ import ModesView from './components/ModesView'
 import AuthView from './components/AuthView'
 import AccountView from './components/AccountView'
 import Header from './components/Header'
+import BugReporter from './components/BugReporter'
 import { getSession, getSubscriptionStatus, onAuthStateChange } from './services/authService'
 
 export default function App() {
   const { currentView, loadAllData, settings, setUser, setIsCheckingAuth } = useAppStore()
+  const [appVersion, setAppVersion] = useState('1.0.0')
 
   useEffect(() => {
     loadAllData()
+    window.electronAPI.getAppVersion().then(setAppVersion)
 
     // Check for existing auth session
     const checkAuth = async () => {
@@ -82,6 +85,7 @@ export default function App() {
         {currentView === 'auth' && <div className="h-full overflow-y-auto"><AuthView /></div>}
         {currentView === 'account' && <div className="h-full overflow-y-auto"><AccountView /></div>}
       </main>
+      <BugReporter appVersion={appVersion} currentView={currentView} />
     </div>
   )
 }
