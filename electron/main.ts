@@ -275,7 +275,16 @@ function setupHotkeySystem() {
   activeHotkey = parseHotkeyString(hotkeyStr)
   console.log(`[Prattle] Hotkey set to: ${hotkeyStr} (keycode ${activeHotkey.triggerKeycode})`)
 
+  // Log first few key events for diagnostics
+  let keyEventCount = 0
+
   uIOhook.on('keydown', (e) => {
+    // Log first 5 key events to confirm uiohook is receiving input
+    if (keyEventCount < 5) {
+      keyEventCount++
+      console.log(`[Prattle] Key event #${keyEventCount}: keycode=${e.keycode} (trigger=${activeHotkey.triggerKeycode})`)
+    }
+
     // Track modifier states (always, regardless of hotkey config)
     if (e.keycode === UiohookKey.Ctrl || e.keycode === UiohookKey.CtrlRight) ctrlDown = true
     if (e.keycode === UiohookKey.Shift || e.keycode === UiohookKey.ShiftRight) shiftDown = true
@@ -361,7 +370,17 @@ function setupHotkeySystem() {
     }
   })
 
-  uIOhook.start()
+  try {
+    uIOhook.start()
+    console.log('[Prattle] uIOhook started successfully — global hotkey active')
+  } catch (err) {
+    console.error('[Prattle] FAILED to start uIOhook:', err)
+    // Notify the renderer so the user knows
+    setTimeout(() => {
+      sendToRenderer('update-status', 'error',
+        'Global hotkey failed to initialize. Try running Prattle as administrator.')
+    }, 3000)
+  }
 }
 
 function createTray() {
