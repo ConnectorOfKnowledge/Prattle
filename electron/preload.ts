@@ -48,6 +48,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // Auto-updater
   checkForUpdates: () => ipcRenderer.send('check-for-updates'),
+  restartToUpdate: () => ipcRenderer.send('restart-to-update'),
   onUpdateStatus: (callback: (status: string, info?: any) => void) => {
     const handler = (_event: any, status: string, info?: any) => callback(status, info)
     ipcRenderer.on('update-status', handler)

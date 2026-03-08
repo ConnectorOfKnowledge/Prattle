@@ -9,6 +9,10 @@ export class SpeechService {
   private gainNode: GainNode | null = null
   private visualizationStream: MediaStream | null = null
 
+  // Audio energy tracking — used to detect silence/noise-only recordings
+  private energySamples: number[] = []
+  private energyTrackingInterval: ReturnType<typeof setInterval> | null = null
+
   async startRecording(): Promise<void> {
     try {
       this.stream = await navigator.mediaDevices.getUserMedia({
@@ -34,6 +38,9 @@ export class SpeechService {
       }
 
       this.mediaRecorder.start(100) // Collect data every 100ms
+
+      // Start tracking audio energy for silence detection
+      this.startEnergyTracking()
     } catch (error) {
       console.error('Failed to start recording:', error)
       throw new Error('Microphone access denied or unavailable')
@@ -70,6 +77,10 @@ export class SpeechService {
   private setupAnalyser(stream: MediaStream): void {
     try {
       this.audioContext = new AudioContext()
+      // Resume AudioContext if suspended (happens in hidden/background windows)
+      if (this.audioContext.state === 'suspended') {
+        this.audioContext.resume()
+      }
       const source = this.audioContext.createMediaStreamSource(stream)
 
       // Gain node for mic volume control (0-200% range)
@@ -93,6 +104,55 @@ export class SpeechService {
     if (this.gainNode) {
       this.gainNode.gain.value = gain / 100
     }
+  }
+
+  // Start tracking audio energy levels during recording
+  // Uses setInterval instead of requestAnimationFrame so it works in
+  // hidden/background windows (rAF pauses when window isn't visible)
+  private startEnergyTracking(): void {
+    this.energySamples = []
+    if (!this.analyserNode) return
+
+    const bufferLength = this.analyserNode.frequencyBinCount
+    const dataArray = new Uint8Array(bufferLength)
+
+    this.energyTrackingInterval = setInterval(() => {
+      if (!this.analyserNode) return
+      this.analyserNode.getByteFrequencyData(dataArray)
+
+      // Calculate RMS energy (0-1 range)
+      let sum = 0
+      for (let i = 0; i < bufferLength; i++) {
+        const normalized = dataArray[i] / 255
+        sum += normalized * normalized
+      }
+      const rms = Math.sqrt(sum / bufferLength)
+      this.energySamples.push(rms)
+    }, 50) // Sample every 50ms
+  }
+
+  // Stop energy tracking
+  private stopEnergyTracking(): void {
+    if (this.energyTrackingInterval !== null) {
+      clearInterval(this.energyTrackingInterval)
+      this.energyTrackingInterval = null
+    }
+  }
+
+  // Get audio stats from the recording session
+  getAudioStats(): { peakEnergy: number; avgEnergy: number; speechDetected: boolean } {
+    if (this.energySamples.length === 0) {
+      return { peakEnergy: 0, avgEnergy: 0, speechDetected: false }
+    }
+
+    const peak = Math.max(...this.energySamples)
+    const avg = this.energySamples.reduce((a, b) => a + b, 0) / this.energySamples.length
+
+    // Speech threshold: average RMS > 0.02 and peak > 0.05
+    // These are conservative — even quiet speech should clear this
+    const speechDetected = avg > 0.02 && peak > 0.05
+
+    return { peakEnergy: peak, avgEnergy: avg, speechDetected }
   }
 
   // Start audio visualization without recording (for browser speech provider)
@@ -121,6 +181,7 @@ export class SpeechService {
   }
 
   private cleanup(): void {
+    this.stopEnergyTracking()
     if (this.stream) {
       this.stream.getTracks().forEach(track => track.stop())
       this.stream = null
@@ -156,7 +217,7 @@ export class SpeechService {
 
 // Transcribe audio using OpenAI Whisper API
 export async function transcribeWithWhisper(audioBlob: Blob, apiKey: string): Promise<string> {
-  if (audioBlob.size < 2000) return '' // Too small — would hallucinate
+  if (audioBlob.size < 3000) return '' // Too small — would hallucinate
 
   const formData = new FormData()
 
@@ -166,6 +227,9 @@ export async function transcribeWithWhisper(audioBlob: Blob, apiKey: string): Pr
   formData.append('model', 'whisper-1')
   formData.append('language', 'en')
   formData.append('response_format', 'text')
+  formData.append('temperature', '0') // Reduce hallucination — 0 = most deterministic
+  // Prompt hint helps Whisper understand context and reduces hallucination on short clips
+  formData.append('prompt', 'Voice dictation transcription.')
 
   const response = await fetch('https://api.openai.com/v1/audio/transcriptions', {
     method: 'POST',
@@ -185,7 +249,7 @@ export async function transcribeWithWhisper(audioBlob: Blob, apiKey: string): Pr
 
 // Transcribe using Deepgram API
 export async function transcribeWithDeepgram(audioBlob: Blob, apiKey: string): Promise<string> {
-  if (audioBlob.size < 2000) return '' // Too small — would hallucinate
+  if (audioBlob.size < 3000) return '' // Too small — would hallucinate
 
   const arrayBuffer = await audioBlob.arrayBuffer()
 
@@ -204,15 +268,25 @@ export async function transcribeWithDeepgram(audioBlob: Blob, apiKey: string): P
   }
 
   const result = await response.json()
-  return result.results?.channels?.[0]?.alternatives?.[0]?.transcript || ''
+  const alternative = result.results?.channels?.[0]?.alternatives?.[0]
+  if (!alternative) return ''
+
+  // Check confidence — reject low-confidence transcriptions that are likely noise
+  const confidence = alternative.confidence ?? 1
+  if (confidence < 0.4) {
+    console.log(`[Prattle] Deepgram low confidence (${confidence.toFixed(2)}), rejecting transcription`)
+    return ''
+  }
+
+  return alternative.transcript || ''
 }
 
 // Transcribe audio using Google Gemini (supports audio input natively)
 export async function transcribeWithGemini(audioBlob: Blob, apiKey: string): Promise<string> {
   // Safety: reject tiny audio blobs that would cause hallucination
-  // A 500ms webm/opus clip is typically 3-5KB; anything under 2KB is likely silence/noise
-  if (audioBlob.size < 2000) {
-    console.log(`[VoiceType] Audio blob too small (${audioBlob.size} bytes), skipping transcription`)
+  // A 500ms webm/opus clip is typically 3-5KB; anything under 3KB is likely silence/noise
+  if (audioBlob.size < 3000) {
+    console.log(`[Prattle] Audio blob too small (${audioBlob.size} bytes), skipping transcription`)
     return ''
   }
 
@@ -240,13 +314,13 @@ export async function transcribeWithGemini(audioBlob: Blob, apiKey: string): Pro
               }
             },
             {
-              text: 'You are a speech-to-text transcription tool. Listen to the audio and transcribe EXACTLY what the speaker says, word for word. Output ONLY the spoken words. Do not add, remove, or change any words. Do not add commentary, labels, or formatting. If the audio is unclear, transcribe your best guess of what was said. If there is silence or no speech, respond with an empty string.'
+              text: `Transcribe the exact words spoken in this audio. Output ONLY the spoken words, nothing else. No labels, no quotes, no commentary. Do NOT repeat or duplicate any part of the transcription. If silent or unclear, respond with exactly: [EMPTY]`
             }
           ]
         }],
         generationConfig: {
           temperature: 0,
-          maxOutputTokens: 8192,
+          maxOutputTokens: 1024,
         }
       })
     }
@@ -258,7 +332,58 @@ export async function transcribeWithGemini(audioBlob: Blob, apiKey: string): Pro
   }
 
   const result = await response.json()
-  return result.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || ''
+  const text = result.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || ''
+
+  // Catch hallucination markers and empty signals
+  if (!text || text === '[EMPTY]' || text.toLowerCase() === 'empty' || text === '""' || text === "''") {
+    return ''
+  }
+
+  // Strip any quotation marks Gemini might wrap around the transcription
+  let cleaned = text.replace(/^["']|["']$/g, '').trim()
+
+  // Detect and remove duplicated content (Gemini sometimes repeats the transcription)
+  cleaned = removeDuplicatedContent(cleaned)
+
+  return cleaned
+}
+
+// Detect and remove duplicated content in transcription output
+// Gemini sometimes repeats the entire transcription or large chunks of it
+function removeDuplicatedContent(text: string): string {
+  if (text.length < 20) return text
+
+  // Check if the text is roughly the same thing repeated (with some variation)
+  const half = Math.floor(text.length / 2)
+  const firstHalf = text.slice(0, half).trim().toLowerCase()
+  const secondHalf = text.slice(half).trim().toLowerCase()
+
+  // If the two halves are very similar (>80% overlap by words), take just the first half
+  const firstWords = firstHalf.split(/\s+/)
+  const secondWords = secondHalf.split(/\s+/)
+  if (firstWords.length > 3 && secondWords.length > 3) {
+    let matchCount = 0
+    const minLen = Math.min(firstWords.length, secondWords.length)
+    for (let i = 0; i < minLen; i++) {
+      if (firstWords[i] === secondWords[i]) matchCount++
+    }
+    if (matchCount / minLen > 0.8) {
+      console.log(`[Prattle] Detected duplicated transcription, using first half`)
+      return text.slice(0, half).trim()
+    }
+  }
+
+  // Also check for exact substring repetition (text appears twice in a row)
+  for (let len = Math.floor(text.length / 2); len >= 10; len--) {
+    const chunk = text.slice(0, len).trim()
+    const rest = text.slice(len).trim()
+    if (rest.toLowerCase().startsWith(chunk.toLowerCase())) {
+      console.log(`[Prattle] Detected repeated substring in transcription`)
+      return chunk
+    }
+  }
+
+  return text
 }
 
 // Browser Web Speech API (free fallback)

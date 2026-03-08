@@ -1,4 +1,4 @@
-# Prattle (formerly VoiceType) - Ideas Parking Lot
+# Prattle - Ideas Parking Lot
 
 ## Brand & Name
 - **Final name: Prattle** — meaning "to talk casually/informally at length." Perfect fit: you prattle into the mic, AI makes it polished.
@@ -10,6 +10,7 @@
 - **Subscription:** $9.95/month or $69.95/year (save 42%)
 - **Free tier:** Bring your own API keys (existing behavior, no account needed)
 - **Paid tier:** We provide the AI backend, no keys needed
+- **Promo codes:** Free code for Lonnie, 50% off code for friends (Stripe Coupons)
 - **API proxy server** on Vercel routes through our API keys, tracks usage
 - **Estimated cost per active user:** $1-2/month (Gemini), $5-6/month (Whisper + Claude)
 - **Margin at $9.95/mo:** $5-8/user after Stripe fees

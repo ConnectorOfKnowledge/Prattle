@@ -30,8 +30,9 @@ export default function MainView() {
   const isHotkeyTriggered = useRef(false)
   const isProcessingRef = useRef(false) // Guard against duplicate stop calls
   const recordingStartTime = useRef<number>(0) // Timestamp when recording started
+  const startPromiseRef = useRef<Promise<void> | null>(null) // Track pending recording start
 
-  const MIN_RECORDING_MS = 500 // Minimum recording duration before we send to API
+  const MIN_RECORDING_MS = 750 // Minimum recording duration before we send to API
 
   const isRecording = recordingState === 'recording' || recordingState === 'rewrite_recording'
   const isProcessing = recordingState === 'processing'
@@ -113,30 +114,43 @@ export default function MainView() {
   const startRecordingInternal = useCallback(async (rewrite: boolean) => {
     if (!settings) return
 
-    try {
-      const speechProvider = settings.speechProvider
+    // Store the start promise so stopRecording can wait for it
+    // (getUserMedia can take 500ms+, and stop might arrive before it resolves)
+    startPromiseRef.current = (async () => {
+      try {
+        const speechProvider = settings.speechProvider
 
-      if (speechProvider === 'browser') {
-        browserTranscriptRef.current = transcribeWithBrowser()
-        speechService.startVisualization()
-      } else {
-        await speechService.startRecording()
+        if (speechProvider === 'browser') {
+          browserTranscriptRef.current = transcribeWithBrowser()
+          speechService.startVisualization()
+        } else {
+          await speechService.startRecording()
+        }
+
+        // Apply mic gain setting
+        speechService.setMicGain(settings.micGain ?? 100)
+
+        recordingStartTime.current = Date.now()
+        setRecordingState(rewrite ? 'rewrite_recording' : 'recording')
+        setStatusMessage(rewrite ? 'Tell me how to change it...' : 'Listening...')
+      } catch (error: any) {
+        setStatusMessage(`Error: ${error.message}`)
+        setRecordingState('idle')
       }
-
-      // Apply mic gain setting
-      speechService.setMicGain(settings.micGain ?? 100)
-
-      recordingStartTime.current = Date.now()
-      setRecordingState(rewrite ? 'rewrite_recording' : 'recording')
-      setStatusMessage(rewrite ? 'Tell me how to change it...' : 'Listening...')
-    } catch (error: any) {
-      setStatusMessage(`Error: ${error.message}`)
-      setRecordingState('idle')
-    }
+    })()
+    await startPromiseRef.current
   }, [settings])
 
   const stopRecordingInternal = useCallback(async () => {
     if (!settings) return
+
+    // Wait for any pending recording start to finish before stopping
+    // (getUserMedia can take 500ms+; without this, stop arrives while
+    // state is still 'idle' and gets silently ignored)
+    if (startPromiseRef.current) {
+      try { await startPromiseRef.current } catch {}
+      startPromiseRef.current = null
+    }
 
     // Guard: prevent duplicate stop calls
     if (isProcessingRef.current) return
@@ -175,6 +189,10 @@ export default function MainView() {
       return
     }
 
+    // Check audio energy before sending to any API
+    const audioStats = speechService.getAudioStats()
+    const recordingDurationMs = Date.now() - recordingStartTime.current
+
     setRecordingState('processing')
     setStatusMessage('Transcribing...')
 
@@ -191,6 +209,17 @@ export default function MainView() {
         speechService.stopVisualization()
         transcription = browserTranscriptRef.current ? await browserTranscriptRef.current : ''
         browserTranscriptRef.current = null
+      } else if (!wasHotkey && !audioStats.speechDetected) {
+        // No speech energy detected — don't waste an API call
+        // Skip this check for hotkey recordings: the user intentionally pressed
+        // the key, and energy tracking may not work in hidden/background windows
+        console.log(`[Prattle] No speech detected (peak: ${audioStats.peakEnergy.toFixed(3)}, avg: ${audioStats.avgEnergy.toFixed(3)})`)
+        await speechService.stopRecording() // discard the audio
+        setStatusMessage('No speech detected. Try speaking louder or check your mic.')
+        setRecordingState('idle')
+        isProcessingRef.current = false
+        if (window.electronAPI) window.electronAPI.hideIndicator?.()
+        return
       } else if (isPaidUser) {
         // Paid tier: route through proxy server
         const audioBlob = await speechService.stopRecording()
@@ -217,6 +246,34 @@ export default function MainView() {
       if (!transcription.trim()) {
         setStatusMessage('No speech detected. Try again.')
         setRecordingState('idle')
+        isProcessingRef.current = false
+        if (window.electronAPI) window.electronAPI.hideIndicator?.()
+        return
+      }
+
+      // Post-transcription sanity check: detect hallucinated output
+      const wordCount = transcription.trim().split(/\s+/).length
+      const recordingSeconds = recordingDurationMs / 1000
+      const wordsPerSecond = wordCount / recordingSeconds
+
+      // Normal speech is 2-3 words/second. Over 5 words/second is suspicious.
+      // Over 8 words/second for a short recording is almost certainly hallucinated.
+      if (recordingSeconds < 3 && wordsPerSecond > 6) {
+        console.warn(`[Prattle] Suspicious transcription: ${wordCount} words in ${recordingSeconds.toFixed(1)}s (${wordsPerSecond.toFixed(1)} wps)`)
+        console.warn(`[Prattle] Rejected text: "${transcription}"`)
+        setStatusMessage('Transcription seemed unreliable. Try again, speaking clearly.')
+        setRecordingState('idle')
+        isProcessingRef.current = false
+        if (window.electronAPI) window.electronAPI.hideIndicator?.()
+        return
+      }
+      if (wordsPerSecond > 8) {
+        console.warn(`[Prattle] Hallucination detected: ${wordCount} words in ${recordingSeconds.toFixed(1)}s (${wordsPerSecond.toFixed(1)} wps)`)
+        console.warn(`[Prattle] Rejected text: "${transcription}"`)
+        setStatusMessage('Transcription seemed unreliable. Try again, speaking clearly.')
+        setRecordingState('idle')
+        isProcessingRef.current = false
+        if (window.electronAPI) window.electronAPI.hideIndicator?.()
         return
       }
 

@@ -1,4 +1,74 @@
-# Prattle (formerly VoiceType) - Change Log
+# Prattle - Change Log
+
+## 2026-03-08 — Session 9: Fix Auto-Updater, Bug Reporter, Global Hotkey
+
+### Context
+Continuation of Session 8 (rebrand to Prattle, Vercel deployment). This session focused on making the core app experience work properly: auto-updater, bug reporting, and most importantly the global hotkey.
+
+### Issues Fixed
+
+**Auto-Updater Not Working (v1.0.0 → v1.0.1)**
+- **Root cause 1:** GitHub repo was private — electron-updater couldn't access the Releases API
+- **Fix:** Made repo public: `gh repo edit ConnectorOfKnowledge/Prattle --visibility public`
+- **Root cause 2:** Asset filename mismatch — `latest.yml` references dashes (`Prattle-Setup-X.X.X.exe`) but GitHub converts uploaded spaces to dots (`Prattle.Setup.X.X.X.exe`)
+- **Fix:** Copy files with dash names before uploading: `cp "Prattle Setup X.X.X.exe" "Prattle-Setup-X.X.X.exe"`
+
+**"Restart to Update" Button Didn't Work (v1.0.3)**
+- **Root cause:** Button onClick always called `checkForUpdates()` regardless of update state
+- **Fix:** Added `restart-to-update` IPC handler with `autoUpdater.quitAndInstall()`, conditional button onClick, green styling when ready
+- **Files:** `electron/main.ts`, `electron/preload.ts`, `src/types/index.ts`, `src/components/SettingsView.tsx`
+
+**Global Hotkey Not Working from Background (v1.0.4) — THE BIG ONE**
+- **Root cause 1:** `requestAnimationFrame` pauses in hidden/background windows. When Prattle is minimized to tray and hotkey fires, energy tracking never collected samples → `speechDetected` returned false → recording silently discarded
+- **Fix:** Replaced `requestAnimationFrame` with `setInterval` (50ms) for energy tracking
+- **Root cause 2:** `AudioContext` can suspend in hidden windows, producing no frequency data
+- **Fix:** Added `audioContext.resume()` after creation if state is 'suspended'
+- **Root cause 3:** Race condition — `getUserMedia()` takes 500ms+, `stop` command arrives before `start` finishes. Stop checks state, finds 'idle', silently exits
+- **Fix:** Store start promise in ref, await it at top of stop function
+- **Root cause 4:** Even with fixes above, energy tracking may not work perfectly in hidden windows
+- **Fix:** Skip speech detection entirely for hotkey-triggered recordings (`!wasHotkey && !audioStats.speechDetected`)
+- **Files:** `src/services/speechService.ts`, `src/components/MainView.tsx`
+- **User confirmed working:** Both hold-to-record and hands-free double-tap modes verified
+
+### Bug Reporter Added (v1.0.2)
+- Created `src/components/BugReporter.tsx` — floating bug icon (bottom-right) with modal form
+- Submits to shared Supabase `tickets` table with `project: 'Prattle'`
+- Auto-appends: app version, current view, OS info, timestamp
+- Uses separate Supabase client for TicketDeck project (`dgnikbbugiuuwokwenlm`)
+- Dropped old `bug_tickets` table via Supabase migration (was superseded by unified `tickets` table)
+
+### Hotkey Diagnostics (v1.0.2)
+- Added key event logging (first 5 events) to confirm uiohook receives input
+- Added try/catch around `uIOhook.start()` with error notification to renderer
+
+### Build Process Notes
+- Google Drive file locks prevent rebuilding to same output directory
+- Workaround: use fresh directory each build (`--config.directories.output=releaseN`)
+- Release process: build → copy files with dashes → `gh release create` with dash-named assets
+
+### Releases This Session
+- **v1.0.1** — Auto-updater fix (repo visibility + filename mismatch)
+- **v1.0.2** — Bug reporter, hotkey diagnostics
+- **v1.0.3** — Restart-to-update button fix
+- **v1.0.4** — Global hotkey fix (energy tracking, race condition, speech detection bypass)
+
+### Files Modified
+- `electron/main.ts` — hotkey diagnostics, restart-to-update IPC, try/catch uiohook
+- `electron/preload.ts` — restartToUpdate bridge
+- `src/services/speechService.ts` — setInterval energy tracking, AudioContext resume
+- `src/components/MainView.tsx` — start promise ref, race condition guard, speech detection bypass
+- `src/components/SettingsView.tsx` — restart button conditional + green styling
+- `src/components/BugReporter.tsx` — NEW: floating bug reporter
+- `src/App.tsx` — added BugReporter component
+- `src/types/index.ts` — added restartToUpdate type
+- `package.json` — version bumps (1.0.0 → 1.0.4)
+
+### Not Done This Session
+- Auth/payments/promo codes backend setup (requested by user, deferred to next session)
+- Stripe account creation, promo code setup
+- Real Supabase credentials in Electron app
+
+---
 
 ## 2026-03-07 — Session 8: Rebrand to Prattle + Vercel Deployment
 
@@ -79,33 +149,6 @@ Phase 1 was done (packaged .exe, system tray, auto-start, auto-update). This ses
 - Lazy Supabase/Stripe client initialization via Proxy pattern (builds without env vars)
 - Rate limiting: 500 speech + 1000 LLM requests per day per user
 
-### Changes to Electron App
-**New Files:**
-- `src/services/authService.ts` — Supabase auth (signup, login, logout, session, subscription)
-- `src/services/proxyService.ts` — API proxy client (transcribeViaProxy, processTextViaProxy, chatViaProxy)
-- `src/components/AuthView.tsx` — Login/signup form with "Continue free" option
-- `src/components/AccountView.tsx` — Subscription management, upgrade buttons, Stripe portal
-
-**Modified Files:**
-- `src/App.tsx` — Auth gate, session check on mount, auth state listener
-- `src/stores/appStore.ts` — Added user/auth state (UserProfile, isAuthenticated, isCheckingAuth)
-- `src/types/index.ts` — Added UserProfile interface, openExternalUrl to electronAPI
-- `src/components/Header.tsx` — Account/Sign In button with green dot for active subscribers
-- `src/components/MainView.tsx` — Proxy vs BYOK routing (paid → proxy, free → direct API)
-- `src/services/llmService.ts` — Exported buildProcessPrompt(), buildRewritePrompt()
-- `src/services/speechService.ts` — Gemini transcription improvements (temp 0, strict prompt)
-- `src/components/SettingsView.tsx` — Added "Browser Built-in" speech provider option
-- `electron/preload.ts` — Added openExternalUrl IPC bridge
-- `electron/main.ts` — Added open-external-url handler via shell.openExternal()
-- `package.json` — Added @supabase/supabase-js dependency
-
-### Bug Fixes
-- Fixed Gemini speech hallucination (temperature 0, stricter transcription prompt)
-- Fixed Stripe v20 type errors (Invoice.subscription, Subscription.current_period_*)
-- Fixed Stripe API version (2026-02-25.clover)
-- Fixed build crash without env vars (lazy Supabase/Stripe client via Proxy pattern)
-- Attempted gemini-2.0-flash (404 — "no longer available"), reverted to gemini-2.5-flash
-
 ### Commits
 1. `7bebfe7` — Add Phase 2 subscription infrastructure (Electron app, 16 files, +928 lines)
 2. `c2fc569` — Add landing page with Direction B design (voicetype-web, 19 files, +1417 lines)
@@ -114,110 +157,31 @@ Phase 1 was done (packaged .exe, system tray, auto-start, auto-update). This ses
 
 ## 2026-03-06 — Session 6: Prompt Fixes, Indicator Redesign, Commercial Product Decision
 
-### Context
-Continued from Session 5 (which fixed overlay architecture, re-implemented mic gain + mode cycling, rewrote hotkey system to use Right Alt). This session focused on prompt accuracy, indicator visual improvements, and the decision to make VoiceType a commercial subscription product.
-
 ### Changes Made
-
-**Prompt Improvements** (`src/constants/modes.ts`, `src/services/llmService.ts`)
-- Completely rewrote BASE_RULES — now tells LLM it's a "speech-to-text post-processor" with clear context
-- Only removes true verbal fillers (um, uh, hmm, er, ah) — no longer removes legitimate words like "actually", "like", "right"
-- Removed em-dash ban (was causing unnecessary restructuring)
-- Clean mode: truly minimal now — only fixes punctuation, capitalization, transcription errors
-- Professional mode: specific about what to change vs preserve
-- Casual mode: clear about keeping conversational tone
-- Added `[Voice dictation transcription to clean up]:` wrapper to user message in processText()
-- Simplified rewriteText() system prompt — removed aggressive BASE_RULES, focused on applying the spoken instruction
-
-**Indicator White Box Fix** (`src/main.tsx`)
-- When running as indicator window, strips `document.documentElement` and `document.body` backgrounds to transparent
-- Clears body className to remove Tailwind bg classes from index.html
-- Eliminates the white box that appeared when the indicator was idle on Windows
-
-**Indicator Visual Redesign** (`src/components/FloatingIndicator.tsx`, `electron/main.ts`)
-- Window size increased from 220×44 to 300×56
-- Added SVG microphone icon with pulsing ring animation
-- Added 5 animated audio bars (CSS animation, not yet reactive to mic)
-- Larger mode badge (12px bold, bordered pill, still clickable to cycle)
-- Timer bumped to 14px mono, white color for better readability
-- Added "LIVE" badge with pulsing red dot on right side
-- Processing state: clean spinner + "Processing..." text
-- Deeper shadows and subtle inner highlight for depth
-- 16px border radius for softer pill shape
-
-### Business Decision
-- VoiceType will become a **commercial subscription product**
-- Pricing: **$19.95/month or $89/year** (undercutting competitor at $30/mo)
-- We provide API backend (users don't need their own keys)
-- Platform targets: Windows (current), Android (Play Store), eventually Mac/iOS
-- Infrastructure needed: API proxy, Supabase auth, Stripe subscriptions, auto-updater
-
-### Files Modified
-- `src/constants/modes.ts` — Rewrote BASE_RULES and all 3 mode descriptions
-- `src/services/llmService.ts` — Added context wrapper to processText(), simplified rewriteText()
-- `src/main.tsx` — Added transparent background for indicator window
-- `src/components/FloatingIndicator.tsx` — Complete visual redesign
-- `electron/main.ts` — Indicator window size 300×56
-- `PROJECT_STATUS.md` — Updated to current state with commercial roadmap
-- `TODO.md` — Reorganized with ship-blocker priorities
-- `IDEAS.md` — Added business model, multi-platform strategy, marketing ideas
+- Completely rewrote BASE_RULES for LLM prompts
+- Indicator white box fix + visual redesign (300×56, SVG mic, audio bars, LIVE badge)
+- Business decision: commercial subscription product
 
 ---
 
 ## 2026-03-06 — Session 5: Architecture Fixes + Hotkey Rework + Indicator Overhaul
 
-### Context
-User said "Fix anything we have tagged to fix, then launch the app." Three tagged fixes from Session 4's revert were re-implemented properly.
-
 ### Changes Made
-
-**Fix 1: Overlay Architecture** (`src/main.tsx`, `src/App.tsx`)
-- Moved indicator detection from App.tsx to main.tsx — separate component trees
-- Eliminates React hooks violation (early return before useEffect)
-- App.tsx is now a clean component with no indicator logic
-
-**Fix 2: Mic Gain Slider** (`src/types/index.ts`, `src/services/speechService.ts`, `src/components/SettingsView.tsx`, `src/components/MainView.tsx`)
-- Added `micGain: number` to Settings interface (0-200, percentage)
-- Added GainNode to audio chain: source → gain → analyser
-- Added `setMicGain()` method to SpeechService
-- Added slider UI (0-200%) in SettingsView Preferences section
-- Wired up gain application in MainView startRecordingInternal
-
-**Fix 3: Mode Cycling in Overlay** (`src/components/FloatingIndicator.tsx`)
-- Mode name in indicator is a clickable button that cycles through Clean/Professional/Casual
-- Persists mode change to settings file via IPC
-
-**Hotkey System Rework** (`electron/main.ts`, `src/components/SettingsView.tsx`)
-- Created full configurable hotkey system with KEY_NAME_TO_KEYCODE map
-- Default changed from Ctrl+Shift+Space to RightAlt
-- Supports single keys and modifier combos
-- SettingsView: changed from text input to dropdown (RightAlt, F2, F8, etc.)
-- update-hotkey IPC handler now functional (was previously a no-op)
-- Migration: auto-converts old Ctrl+Shift+Space to RightAlt
+- Fix overlay architecture (main.tsx)
+- Mic gain slider (GainNode)
+- Mode cycling in overlay
+- Hotkey system rework (Right Alt default, configurable)
 
 ---
 
 ## 2026-03-01 — Session 4: Attempted Overlay Improvements → Full Revert
 
-All 8 files reverted to pre-session stable state. See conversations/ for details.
+All 8 files reverted to pre-session stable state.
 
 ---
 
 ## 2026-03-01 — Session 3: HotKeys Overlay + Learning Mode + Polish
 
-- Global HotKey Overlay (OverlayView.tsx)
-- Learning Mode (LearningView.tsx, SettingsView.tsx)
-
----
-
 ## 2026-03-01 — Session 2: Major UI Overhaul + New Features
 
-- Platform Sidebar, Simultaneous Processing, Action Bar, Paste to External
-- Global Rules, Chat/Modify Panel, Ticket System, Mic Volume Meter
-
----
-
 ## 2026-03-01 — Session 1: Initial Build
-
-- Complete app scaffold: Electron + React + Vite + Tailwind + TypeScript
-- All views, speech recording, transcription, LLM processing, dictionary, learning

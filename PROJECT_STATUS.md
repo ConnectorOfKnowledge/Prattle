@@ -19,14 +19,16 @@ A desktop voice-to-text app for Windows. Hold a key, speak, release — your wor
 - **Auth:** Supabase (client-side in Electron app)
 - **Payments:** Stripe (Checkout + Customer Portal)
 - **Web/API:** Next.js 16 on Vercel (landing page + API proxy)
+- **Bug Tracking:** TicketDeck (shared Supabase project `dgnikbbugiuuwokwenlm`)
 
-## Current State (2026-03-07, Session 8)
-**Status: Rebranded to Prattle, landing page deployed to Vercel, ready for final setup steps**
+## Current State (2026-03-08, Session 9)
+**Status: Core app fully functional — hotkey, auto-updater, and bug reporter all working. Ready for auth/payments backend setup.**
 
 ### What's Built & Working
-#### Desktop App (Electron — still branded "VoiceType" internally, needs rebrand)
+#### Desktop App (Electron)
 - [x] **Hold-to-Record hotkey** — Right Alt (configurable). Hold to record, release to process + auto-type
 - [x] **Double-tap hands-free** — Double-tap Right Alt for continuous recording, tap once to stop
+- [x] **Hotkey works from background** — Fixed in v1.0.4: energy tracking, race conditions, speech detection bypass
 - [x] **Floating indicator overlay** — Shows recording state, mode name, duration, animated audio bars, "LIVE" badge
 - [x] **5 dictation modes** — Clean, Professional, Casual + custom modes via prompt editor
 - [x] **Mode cycling from overlay** — Click the mode badge in the indicator to switch modes
@@ -35,8 +37,9 @@ A desktop voice-to-text app for Windows. Hold a key, speak, release — your wor
 - [x] **Auto-type output** — Processed text typed directly into the active app via keyboard simulation
 - [x] **System tray** — Runs in background, right-click menu with Show/Quit
 - [x] **Auto-start on login** — Toggle in settings
-- [x] **Auto-updater** — Checks GitHub Releases for updates on launch
-- [x] **.exe installer** — VoiceType Setup 1.0.0.exe (97 MB), built with electron-builder NSIS
+- [x] **Auto-updater** — Checks GitHub Releases for updates on launch, restart-to-update button works
+- [x] **Bug reporter** — Floating bug icon, submits to shared TicketDeck Supabase project
+- [x] **.exe installer** — Prattle Setup 1.0.4.exe (~97 MB), built with electron-builder NSIS
 - [x] **Settings** — Provider selection, API keys, mic gain, hotkey, font size
 - [x] **Dictionary** — Case-insensitive whole-word replacements applied before AI processing
 - [x] **Modes view** — Customize mode prompts, create custom modes (via chat-based prompt editor)
@@ -44,19 +47,12 @@ A desktop voice-to-text app for Windows. Hold a key, speak, release — your wor
 - [x] **Auth system** — Supabase sign up/in/out, session persistence across restarts
 - [x] **Account management** — Subscription status, upgrade buttons, Stripe Customer Portal
 - [x] **Proxy routing** — Paid users → API proxy (no keys needed), Free → BYOK direct calls
-- [x] **Data persistence** — All settings/data as JSON in %AppData%\voicetype-data
+- [x] **Data persistence** — All settings/data as JSON in %AppData%\prattle-data
 
 #### Web Project (voicetype-web → now "Prattle" branding)
 - [x] **Landing page** — Full marketing page with Direction B design (warm cream, amber/teal, serif headlines)
 - [x] **Rebranded to Prattle** — All 13 source files updated, all 47 references changed
 - [x] **Deployed to Vercel** — Live at https://voicetype-web.vercel.app
-- [x] **Hero section** — Animated before/after demo showing messy speech → clean text
-- [x] **Features section** — 6 feature cards (modes, AI learning, voice rewrite, dictionary, hotkey, providers)
-- [x] **How It Works** — 3-step visual walkthrough
-- [x] **Use Cases** — 4 examples (Email, Slack, Documents, Code) with before/after
-- [x] **Pricing** — Monthly/annual toggle, Free vs Pro comparison
-- [x] **FAQ** — 8 accordion items covering common questions
-- [x] **Download page** — System requirements, quick setup guide, feature checklist
 - [x] **API proxy routes** — /api/speech/transcribe, /api/llm/process, /api/llm/chat
 - [x] **Stripe routes** — /api/stripe/checkout, /api/stripe/portal, /api/stripe/webhook
 - [x] **Auth route** — /api/auth/subscription
@@ -73,23 +69,29 @@ A desktop voice-to-text app for Windows. Hold a key, speak, release — your wor
    - `src/services/authService.ts` — SUPABASE_URL, SUPABASE_ANON_KEY, PROXY_BASE
    - `src/services/proxyService.ts` — PROXY_BASE domain
    - `src/components/AccountView.tsx` — Stripe price IDs
-7. **Rebrand Electron app** — Update internal references from VoiceType to Prattle
-8. **Rebuild .exe with real credentials**
-9. **Rename GitHub repo** — VoiceType → Prattle (or create new repo)
+7. **Rebuild .exe with real credentials**
+8. **Set up promo/coupon codes** — Free code for Lonnie, 50% off for friends
 
 ### Known Issues
 - First press of hotkey shows blank indicator briefly (window created before React mounts)
 - Audio bars in indicator are CSS animation only, not reactive to actual mic input
 - GPU cache warnings when running from Google Drive (cosmetic only)
-- Electron app still internally branded as "VoiceType" — needs rebrand pass
+- Google Drive file locks prevent building to same output dir twice (use fresh `releaseN` dir each build)
 
 ## Repos
-- **Desktop app:** ConnectorOfKnowledge/VoiceType (private) — needs rename to Prattle
+- **Desktop app:** ConnectorOfKnowledge/Prattle (public)
 - **Web/API:** ConnectorOfKnowledge/voicetype-web (private) — already rebranded to Prattle
+
+## Releases
+- v1.0.0 — Initial packaged release
+- v1.0.1 — Update system fix (filename mismatch)
+- v1.0.2 — Hotkey diagnostics, bug reporter
+- v1.0.3 — Restart-to-update button fix
+- v1.0.4 — **Global hotkey fix** (energy tracking, race condition, speech detection bypass)
 
 ## Key Files — Desktop App
 ```
-VoiceType/
+Prattle/
 ├── electron/
 │   ├── main.ts          # Electron main process, hotkey, tray, auto-updater, IPC
 │   └── preload.ts       # Context bridge (electronAPI)
@@ -99,7 +101,7 @@ VoiceType/
 │   ├── types/index.ts    # TypeScript interfaces + UserProfile + electronAPI
 │   ├── stores/appStore.ts  # Zustand global state + auth state
 │   ├── services/
-│   │   ├── speechService.ts  # Audio recording, GainNode, analyser
+│   │   ├── speechService.ts  # Audio recording, GainNode, analyser, energy tracking
 │   │   ├── llmService.ts     # LLM calls, buildProcessPrompt, buildRewritePrompt
 │   │   ├── authService.ts    # Supabase auth client (signup, login, session, subscription)
 │   │   └── proxyService.ts   # API proxy client (transcribe, process, chat via proxy)
@@ -107,33 +109,17 @@ VoiceType/
 │       ├── Header.tsx, MainView.tsx, SettingsView.tsx, ModesView.tsx, DictionaryView.tsx
 │       ├── AuthView.tsx       # Login/signup form
 │       ├── AccountView.tsx    # Subscription management, upgrade, portal
+│       ├── BugReporter.tsx    # Floating bug icon + modal → TicketDeck
 │       └── FloatingIndicator.tsx  # Overlay widget
 ```
 
-## Key Files — Web Project
-```
-voicetype-web/
-├── src/app/
-│   ├── page.tsx           # Landing page (assembles all sections)
-│   ├── download/page.tsx  # Download page
-│   ├── api/
-│   │   ├── speech/transcribe/route.ts  # Speech proxy
-│   │   ├── llm/process/route.ts        # LLM proxy (single-turn)
-│   │   ├── llm/chat/route.ts           # LLM proxy (multi-turn)
-│   │   ├── stripe/checkout/route.ts    # Create Stripe Checkout session
-│   │   ├── stripe/portal/route.ts      # Create Stripe Customer Portal
-│   │   ├── stripe/webhook/route.ts     # Handle Stripe events
-│   │   └── auth/subscription/route.ts  # Get subscription status
-│   └── globals.css        # Tailwind v4 theme (cream, amber, teal palette)
-├── src/components/        # Navbar, Hero, SocialProof, HowItWorks, Features, UseCases, Pricing, FAQ, CTA, Footer
-├── src/lib/
-│   ├── supabase.ts        # Lazy Supabase admin client via Proxy
-│   └── stripe.ts          # Lazy Stripe client via Proxy
-└── supabase/migration.sql # Database schema
-```
-
 ## Data Storage
-All user data: `%AppData%\voicetype-data\`
+All user data: `%AppData%\prattle-data\`
 - `settings.json` — API keys, providers, preferences, hotkey, mic gain
 - `dictionary.json` — Word replacements
 - `learned-patterns.json` — Auto + manual patterns
+
+## Build Notes
+- Build from Google Drive requires fresh output dir each time: `npx electron-builder --win --config.directories.output=releaseN`
+- Release assets must be renamed with dashes before uploading: `Prattle Setup X.X.X.exe` → `Prattle-Setup-X.X.X.exe`
+- `latest.yml` already uses dash names, but GitHub converts spaces to dots on upload

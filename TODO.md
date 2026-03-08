@@ -1,21 +1,18 @@
-# Prattle (formerly VoiceType) - TODO
+# Prattle - TODO
 
 ## Priority: Critical (Before Going Live)
+- [ ] Set up auth/payments/promo codes backend:
+  - [ ] Create Stripe account + two products (Monthly $9.95, Annual $69.95)
+  - [ ] Create promo/coupon codes (free for Lonnie, 50% off for friends)
+  - [ ] Run supabase/migration.sql in Supabase SQL Editor
+  - [ ] Set env vars on Vercel (STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET, SUPABASE keys, price IDs)
+  - [ ] Update placeholder values in Electron app code (authService.ts, proxyService.ts, AccountView.tsx)
 - [ ] Register a domain (prattle.app, getprattle.com, etc.)
-- [ ] Create Stripe account + two products (Monthly $9.95, Annual $69.95)
-- [ ] Run supabase/migration.sql in Supabase SQL Editor
-- [ ] Set env vars on Vercel (STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET, SUPABASE keys, price IDs)
-- [ ] Update placeholder values in Electron app code:
-  - authService.ts — SUPABASE_URL, SUPABASE_ANON_KEY, PROXY_BASE
-  - proxyService.ts — PROXY_BASE domain
-  - AccountView.tsx — Stripe price IDs
-- [ ] Rebrand Electron app internally (VoiceType → Prattle references, app name, tray tooltip, installer name)
-- [ ] Rebuild .exe with real credentials + Prattle branding
+- [ ] Rebuild .exe with real credentials
 - [ ] End-to-end test: install → sign up → subscribe → dictate via proxy → manage subscription
 - [ ] Windows code signing certificate (prevents "unknown publisher" warning)
 
 ## Priority: High (Before Public Release)
-- [ ] Rename GitHub repo (VoiceType → Prattle)
 - [ ] Onboarding flow — first-launch setup wizard
 - [ ] Error handling for API failures, no mic access, network issues
 - [ ] Demo video / product walkthrough for landing page
@@ -69,3 +66,10 @@
 - [x] Rebrand landing page from VoiceType to Prattle (47 references across 13 files)
 - [x] Deploy landing page to Vercel (https://voicetype-web.vercel.app)
 - [x] Research alternative product names (chose "Prattle")
+- [x] Make GitHub repo public (required for auto-updater)
+- [x] Fix auto-updater (release asset filename mismatch — spaces vs dashes)
+- [x] Add BugReporter component (TicketDeck integration)
+- [x] Drop old bug_tickets table, use shared tickets table
+- [x] Fix "Restart to Update" button (added quitAndInstall IPC handler)
+- [x] Fix global hotkey not working from background (energy tracking, race condition, speech detection)
+- [x] Releases: v1.0.0 → v1.0.1 → v1.0.2 → v1.0.3 → v1.0.4

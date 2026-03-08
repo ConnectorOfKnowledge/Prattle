@@ -81,6 +81,7 @@ declare global {
       getStartOnLogin: () => Promise<boolean>
       // Auto-updater
       checkForUpdates: () => void
+      restartToUpdate: () => void
       onUpdateStatus: (callback: (status: string, info?: any) => void) => () => void
       // App version
       getAppVersion: () => Promise<string>

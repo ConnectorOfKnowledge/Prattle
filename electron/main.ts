@@ -753,6 +753,11 @@ ipcMain.on('check-for-updates', () => {
   autoUpdater.checkForUpdatesAndNotify()
 })
 
+ipcMain.on('restart-to-update', () => {
+  isQuitting = true
+  autoUpdater.quitAndInstall()
+})
+
 // App version
 ipcMain.handle('get-app-version', () => {
   return app.getVersion()

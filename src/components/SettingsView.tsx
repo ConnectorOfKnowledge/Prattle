@@ -305,11 +305,19 @@ export default function SettingsView() {
           </div>
           <button
             onClick={() => {
-              setUpdateStatus('checking')
-              window.electronAPI.checkForUpdates()
+              if (updateStatus === 'ready') {
+                window.electronAPI.restartToUpdate()
+              } else {
+                setUpdateStatus('checking')
+                window.electronAPI.checkForUpdates()
+              }
             }}
             disabled={updateStatus === 'checking' || updateStatus === 'downloading'}
-            className="px-4 py-2 rounded-xl text-sm font-medium bg-cd-bg border border-white/10 text-cd-text hover:bg-white/10 transition-all disabled:opacity-50"
+            className={`px-4 py-2 rounded-xl text-sm font-medium transition-all disabled:opacity-50 ${
+              updateStatus === 'ready'
+                ? 'bg-green-600 hover:bg-green-500 text-white'
+                : 'bg-cd-bg border border-white/10 text-cd-text hover:bg-white/10'
+            }`}
           >
             {updateStatus === 'checking' ? 'Checking...' :
              updateStatus === 'downloading' ? `Downloading ${updateInfo?.percent || ''}%` :
