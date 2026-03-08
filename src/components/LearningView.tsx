@@ -242,7 +242,7 @@ export default function LearningView() {
           <HiSparkles className="w-8 h-8 mx-auto mb-2 text-cd-subtle/50" />
           <p>No learned patterns yet.</p>
           <p className="text-xs mt-1">
-            Edit your transcriptions before copying and VoiceType will learn your preferences.
+            Edit your transcriptions before copying and Prattle will learn your preferences.
           </p>
         </div>
       )}

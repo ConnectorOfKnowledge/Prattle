@@ -8,11 +8,28 @@ import { autoUpdater } from 'electron-updater'
 const isDev = !app.isPackaged
 
 // User data directory for settings, dictionary, learned patterns
-const userDataPath = path.join(app.getPath('userData'), 'voicetype-data')
+const userDataPath = path.join(app.getPath('userData'), 'prattle-data')
+const legacyDataPath = path.join(app.getPath('userData'), 'voicetype-data')
 
 function ensureUserDataDir() {
   if (!fs.existsSync(userDataPath)) {
     fs.mkdirSync(userDataPath, { recursive: true })
+  }
+  // Migrate legacy voicetype-data to prattle-data
+  if (fs.existsSync(legacyDataPath)) {
+    try {
+      const files = fs.readdirSync(legacyDataPath)
+      for (const file of files) {
+        const src = path.join(legacyDataPath, file)
+        const dest = path.join(userDataPath, file)
+        if (!fs.existsSync(dest)) {
+          fs.copyFileSync(src, dest)
+        }
+      }
+      console.log('[Prattle] Migrated data from voicetype-data to prattle-data')
+    } catch (e) {
+      console.error('[Prattle] Migration error:', e)
+    }
   }
 }
 
@@ -142,7 +159,7 @@ function createWindow() {
     height: 800,
     minWidth: 750,
     minHeight: 600,
-    title: 'VoiceType',
+    title: 'Prattle',
     icon: path.join(__dirname, '../public/icon.png'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -256,7 +273,7 @@ function setupHotkeySystem() {
   const settings = readJsonFile('settings.json')
   const hotkeyStr = settings.hotkey || 'RightAlt'
   activeHotkey = parseHotkeyString(hotkeyStr)
-  console.log(`[VoiceType] Hotkey set to: ${hotkeyStr} (keycode ${activeHotkey.triggerKeycode})`)
+  console.log(`[Prattle] Hotkey set to: ${hotkeyStr} (keycode ${activeHotkey.triggerKeycode})`)
 
   uIOhook.on('keydown', (e) => {
     // Track modifier states (always, regardless of hotkey config)
@@ -364,14 +381,14 @@ function createTray() {
   }
 
   tray = new Tray(trayIcon)
-  tray.setToolTip('VoiceType — Voice to Text')
+  tray.setToolTip('Prattle — Voice to Text')
 
   const settings = readJsonFile('settings.json')
   const startOnLogin = settings.startOnLogin !== false // default true
 
   const contextMenu = Menu.buildFromTemplate([
     {
-      label: 'Show VoiceType',
+      label: 'Show Prattle',
       click: () => {
         if (mainWindow) {
           mainWindow.show()
@@ -403,7 +420,7 @@ function createTray() {
     },
     { type: 'separator' },
     {
-      label: 'Quit VoiceType',
+      label: 'Quit Prattle',
       click: () => {
         isQuitting = true
         app.quit()
@@ -427,7 +444,7 @@ function createTray() {
 function setupAutoUpdater() {
   // Don't check for updates in dev mode
   if (isDev) {
-    console.log('[VoiceType] Dev mode — skipping auto-updater')
+    console.log('[Prattle] Dev mode — skipping auto-updater')
     return
   }
 
@@ -455,7 +472,7 @@ function setupAutoUpdater() {
   })
 
   autoUpdater.on('error', (err) => {
-    console.error('[VoiceType] Update error:', err)
+    console.error('[Prattle] Update error:', err)
     sendToRenderer('update-status', 'error', err.message)
   })
 
@@ -615,7 +632,7 @@ ipcMain.handle('save-learned-patterns', (_, patterns) => {
 // Get user data path (for display in settings)
 ipcMain.handle('get-user-data-path', () => userDataPath)
 
-// Paste to external window (from main window -- minimizes VoiceType)
+// Paste to external window (from main window -- minimizes Prattle)
 ipcMain.handle('paste-to-external', async (_, text: string) => {
   if (!mainWindow) return false
 
@@ -623,7 +640,7 @@ ipcMain.handle('paste-to-external', async (_, text: string) => {
     // 1. Copy text to clipboard
     clipboard.writeText(text)
 
-    // 2. Minimize VoiceType so previous window regains focus
+    // 2. Minimize Prattle so previous window regains focus
     mainWindow.minimize()
 
     // 3. Wait for focus to shift
@@ -666,7 +683,7 @@ ipcMain.handle('auto-type-text', async (_, text: string) => {
     // 2. Brief delay for clipboard
     await new Promise(resolve => setTimeout(resolve, 100))
 
-    // 3. Simulate Ctrl+V via PowerShell (VoiceType stays in background)
+    // 3. Simulate Ctrl+V via PowerShell (Prattle stays in background)
     await new Promise<void>((resolve, reject) => {
       exec(
         'powershell -Command "Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.SendKeys]::SendWait(\'^v\')"',
@@ -736,7 +753,7 @@ ipcMain.handle('update-hotkey', (_, hotkey: string) => {
   triggerKeyDown = false
   isHoldRecording = false
   isHandsFreeMode = false
-  console.log(`[VoiceType] Hotkey updated to: ${hotkey} (keycode ${activeHotkey.triggerKeycode})`)
+  console.log(`[Prattle] Hotkey updated to: ${hotkey} (keycode ${activeHotkey.triggerKeycode})`)
   return true
 })
 

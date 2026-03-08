@@ -80,7 +80,7 @@ export default function AuthView() {
         </h2>
         <p className="text-sm text-cd-subtle mt-1">
           {isSignUp
-            ? 'Create an account to unlock the full VoiceType experience'
+            ? 'Create an account to unlock the full Prattle experience'
             : 'Sign in to access your subscription'}
         </p>
       </div>

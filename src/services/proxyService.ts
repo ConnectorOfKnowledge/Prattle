@@ -1,6 +1,6 @@
 import { getAccessToken } from './authService'
 
-const PROXY_BASE = 'https://voicetype.app'  // TODO: Update with actual domain
+const PROXY_BASE = 'https://prattle.app'  // TODO: Update with actual domain
 
 // Convert Blob to base64 string
 async function blobToBase64(blob: Blob): Promise<string> {

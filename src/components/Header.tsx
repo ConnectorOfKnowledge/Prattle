@@ -17,7 +17,7 @@ export default function Header() {
         <div className="w-7 h-7 bg-cd-accent rounded-lg flex items-center justify-center">
           <HiMicrophone className="w-4 h-4 text-white" />
         </div>
-        <span className="font-semibold text-cd-text text-sm">VoiceType</span>
+        <span className="font-semibold text-cd-text text-sm">Prattle</span>
       </div>
 
       <nav className="flex items-center gap-0.5 flex-1">

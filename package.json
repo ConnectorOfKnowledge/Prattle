@@ -1,5 +1,5 @@
 {
-  "name": "voicetype",
+  "name": "prattle",
   "version": "1.0.0",
   "description": "A smart voice-to-text desktop app with learning capabilities",
   "main": "dist-electron/main.js",
@@ -43,8 +43,8 @@
     "wait-on": "^8.0.3"
   },
   "build": {
-    "appId": "com.voicetype.app",
-    "productName": "VoiceType",
+    "appId": "com.prattle.app",
+    "productName": "Prattle",
     "directories": {
       "buildResources": "build",
       "output": "release"
@@ -74,12 +74,12 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "VoiceType"
+      "shortcutName": "Prattle"
     },
     "publish": {
       "provider": "github",
       "owner": "ConnectorOfKnowledge",
-      "repo": "VoiceType"
+      "repo": "Prattle"
     }
   }
 }

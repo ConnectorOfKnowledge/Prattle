@@ -53,7 +53,7 @@ export default function AccountView() {
   if (!user) {
     return (
       <div className="p-6 max-w-md mx-auto text-center space-y-4 slide-in">
-        <p className="text-cd-subtle">You're using VoiceType in free mode.</p>
+        <p className="text-cd-subtle">You're using Prattle in free mode.</p>
         <button
           onClick={() => setCurrentView('auth')}
           className="px-6 py-2.5 rounded-xl text-sm font-medium bg-cd-accent text-white hover:bg-cd-accent/80 transition-all"

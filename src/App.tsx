@@ -65,7 +65,7 @@ export default function App() {
       <div className="h-screen flex items-center justify-center bg-cd-bg">
         <div className="text-center">
           <div className="w-10 h-10 border-3 border-cd-accent border-t-transparent rounded-full animate-spin mx-auto mb-3"></div>
-          <p className="text-cd-subtle text-sm">Loading VoiceType...</p>
+          <p className="text-cd-subtle text-sm">Loading Prattle...</p>
         </div>
       </div>
     )

@@ -264,7 +264,7 @@ export default function SettingsView() {
         <label className="flex items-center justify-between cursor-pointer">
           <div>
             <div className="text-sm font-medium text-cd-text">Start on Windows login</div>
-            <div className="text-xs text-cd-subtle">VoiceType launches minimized to the system tray when you log in</div>
+            <div className="text-xs text-cd-subtle">Prattle launches minimized to the system tray when you log in</div>
           </div>
           <div className="relative">
             <input
@@ -300,7 +300,7 @@ export default function SettingsView() {
         <h3 className="font-medium text-cd-text mb-3">About</h3>
         <div className="flex items-center justify-between mb-3">
           <div>
-            <div className="text-sm font-medium text-cd-text">VoiceType</div>
+            <div className="text-sm font-medium text-cd-text">Prattle</div>
             <div className="text-xs text-cd-subtle font-mono">v{appVersion || '1.0.0'}</div>
           </div>
           <button
@@ -323,7 +323,7 @@ export default function SettingsView() {
           <p className="text-xs text-green-400">A new version is available and downloading...</p>
         )}
         {updateStatus === 'ready' && (
-          <p className="text-xs text-green-400">Update downloaded! Restart VoiceType to install.</p>
+          <p className="text-xs text-green-400">Update downloaded! Restart Prattle to install.</p>
         )}
         {updateStatus === 'error' && (
           <p className="text-xs text-red-400">Update check failed. Try again later.</p>

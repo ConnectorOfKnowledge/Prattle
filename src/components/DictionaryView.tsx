@@ -66,7 +66,7 @@ export default function DictionaryView() {
     if (!dictionary) return
     const result = await window.electronAPI.showSaveDialog({
       title: 'Export Dictionary',
-      defaultPath: 'voicetype-dictionary.json',
+      defaultPath: 'prattle-dictionary.json',
       filters: [{ name: 'JSON', extensions: ['json'] }]
     })
     if (result?.filePath) {

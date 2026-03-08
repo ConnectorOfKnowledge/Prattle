@@ -1,8 +1,8 @@
 import { createClient, SupabaseClient, Session } from '@supabase/supabase-js'
 
 // These are public keys — safe to embed in client code
-const SUPABASE_URL = 'https://pkvmpajwqgacyrvlxjfk.supabase.co'  // TODO: Update with VoiceType project URL
-const SUPABASE_ANON_KEY = 'TODO_REPLACE_WITH_ANON_KEY'  // TODO: Update with VoiceType project anon key
+const SUPABASE_URL = 'https://pkvmpajwqgacyrvlxjfk.supabase.co'  // TODO: Update with Prattle project URL
+const SUPABASE_ANON_KEY = 'TODO_REPLACE_WITH_ANON_KEY'  // TODO: Update with Prattle project anon key
 
 let supabase: SupabaseClient | null = null
 
@@ -57,7 +57,7 @@ export interface SubscriptionInfo {
   cancelAtPeriodEnd?: boolean
 }
 
-const PROXY_BASE = 'https://voicetype.app'  // TODO: Update with actual domain
+const PROXY_BASE = 'https://prattle.app'  // TODO: Update with actual domain
 
 export async function getSubscriptionStatus(): Promise<SubscriptionInfo> {
   const token = await getAccessToken()
