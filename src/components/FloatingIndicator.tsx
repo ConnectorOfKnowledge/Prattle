@@ -7,6 +7,7 @@ export default function FloatingIndicator() {
   const [recordingState, setRecordingState] = useState<RecordingState>('idle')
   const [modeIndex, setModeIndex] = useState(0)
   const [duration, setDuration] = useState(0)
+  const [targetWindow, setTargetWindow] = useState('')
   const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Listen for recording commands from main process
@@ -41,6 +42,16 @@ export default function FloatingIndicator() {
       }
     })
 
+    return cleanup
+  }, [])
+
+  // Listen for target window updates from main process
+  useEffect(() => {
+    if (!window.electronAPI?.onTargetWindow) return
+    const cleanup = window.electronAPI.onTargetWindow((title: string) => {
+      // Truncate long titles for display
+      setTargetWindow(title.length > 30 ? title.slice(0, 27) + '...' : title)
+    })
     return cleanup
   }, [])
 
@@ -199,9 +210,19 @@ export default function FloatingIndicator() {
         )}
       </div>
 
-      {/* Right section: live dot */}
+      {/* Right section: target window + live dot */}
       {isRecording && (
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-2">
+          {/* Target window indicator */}
+          {targetWindow && (
+            <span
+              className="text-[10px] font-medium truncate"
+              style={{ color: 'rgba(100, 200, 255, 0.8)', maxWidth: 100 }}
+              title={`Text will be typed into: ${targetWindow}`}
+            >
+              → {targetWindow}
+            </span>
+          )}
           <div
             style={{
               width: 7,

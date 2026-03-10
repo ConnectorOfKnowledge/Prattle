@@ -32,6 +32,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Hide the indicator overlay window
   hideIndicator: () => ipcRenderer.send('hide-indicator'),
 
+  // Target window listener (foreground window tracking during recording)
+  onTargetWindow: (callback: (title: string) => void) => {
+    const handler = (_event: any, title: string) => callback(title)
+    ipcRenderer.on('target-window', handler)
+    return () => {
+      ipcRenderer.removeListener('target-window', handler)
+    }
+  },
+
   // Recording command listener (from main process hotkey system)
   onRecordingCommand: (callback: (command: string, data?: any) => void) => {
     const handler = (_event: any, command: string, data?: any) => callback(command, data)

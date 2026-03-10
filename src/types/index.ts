@@ -76,6 +76,8 @@ declare global {
       readFile: (filePath: string) => Promise<string>
       hideIndicator: () => void
       onRecordingCommand: (callback: (command: string, data?: any) => void) => () => void
+      // Target window tracking (shows which app will receive text)
+      onTargetWindow: (callback: (title: string) => void) => () => void
       // Auto-start
       setStartOnLogin: (enabled: boolean) => Promise<boolean>
       getStartOnLogin: () => Promise<boolean>

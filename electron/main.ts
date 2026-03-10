@@ -63,6 +63,7 @@ let mainWindow: BrowserWindow | null = null
 let indicatorWindow: BrowserWindow | null = null
 let tray: Tray | null = null
 let isQuitting = false
+let lastForegroundWindow: string = '' // Track foreground window title for text targeting
 
 // ---- Hotkey state tracking ----
 let ctrlDown = false
@@ -77,6 +78,55 @@ let stopDelayTimeout: ReturnType<typeof setTimeout> | null = null // Delayed sto
 
 const DOUBLE_TAP_WINDOW = 400 // ms — window between keydown events for double-tap detection
 const STOP_DELAY = 250 // ms — delay before processing on keyup (allows double-tap cancel)
+
+// ---- Foreground window tracking ----
+// Detect the active window title so the user knows where text will be pasted.
+// Returns the window title of the foreground app, or empty string on failure.
+function getForegroundWindowTitle(): Promise<string> {
+  return new Promise((resolve) => {
+    exec(
+      'powershell -NoProfile -Command "(Get-Process | Where-Object {$_.MainWindowHandle -eq (Add-Type -MemberDefinition \'[DllImport(\\\"user32.dll\\\")] public static extern IntPtr GetForegroundWindow();\' -Name W -Namespace W -PassThru)::GetForegroundWindow()}).MainWindowTitle"',
+      { timeout: 2000 },
+      (error, stdout) => {
+        if (error) {
+          resolve('')
+        } else {
+          resolve(stdout.trim())
+        }
+      }
+    )
+  })
+}
+
+// Periodically track foreground window when recording (so indicator shows target)
+let foregroundTrackingInterval: ReturnType<typeof setInterval> | null = null
+
+function startForegroundTracking() {
+  if (foregroundTrackingInterval) return
+  // Immediately capture the current foreground window
+  getForegroundWindowTitle().then(title => {
+    if (title && !title.includes('Prattle')) {
+      lastForegroundWindow = title
+      sendToIndicator('target-window', title)
+      sendToRenderer('target-window', title)
+    }
+  })
+  foregroundTrackingInterval = setInterval(async () => {
+    const title = await getForegroundWindowTitle()
+    if (title && !title.includes('Prattle') && title !== lastForegroundWindow) {
+      lastForegroundWindow = title
+      sendToIndicator('target-window', title)
+      sendToRenderer('target-window', title)
+    }
+  }, 1000)
+}
+
+function stopForegroundTracking() {
+  if (foregroundTrackingInterval) {
+    clearInterval(foregroundTrackingInterval)
+    foregroundTrackingInterval = null
+  }
+}
 
 // ---- Configurable hotkey system ----
 // Map friendly key names to uiohook keycodes
@@ -195,7 +245,7 @@ function createIndicatorWindow() {
 
   const primaryDisplay = screen.getPrimaryDisplay()
   const { width: screenW } = primaryDisplay.workAreaSize
-  const indicatorW = 300
+  const indicatorW = 380
   const indicatorH = 56
 
   indicatorWindow = new BrowserWindow({
@@ -314,6 +364,7 @@ function setupHotkeySystem() {
           // Stop hands-free recording
           isHandsFreeMode = false
           isHoldRecording = false
+          stopForegroundTracking()
           sendToRenderer('recording-command', 'stop')
           sendToIndicator('recording-command', 'stop')
         } else {
@@ -328,6 +379,7 @@ function setupHotkeySystem() {
       } else if (!isHandsFreeMode) {
         // Single press: start hold-to-record
         isHoldRecording = true
+        startForegroundTracking()
 
         // Check if we should enter rewrite mode
         if (hasLastCommittedText) {
@@ -361,6 +413,7 @@ function setupHotkeySystem() {
           stopDelayTimeout = null
           if (isHoldRecording && !isHandsFreeMode) {
             isHoldRecording = false
+            stopForegroundTracking()
             sendToRenderer('recording-command', 'stop')
             sendToIndicator('recording-command', 'stop')
           }
@@ -499,6 +552,26 @@ function setupAutoUpdater() {
   setTimeout(() => {
     autoUpdater.checkForUpdatesAndNotify()
   }, 5000)
+}
+
+// ---- Single-instance lock ----
+// Prevent multiple Prattle processes from running simultaneously.
+// Duplicate instances create conflicting hotkey listeners and cause erratic behavior.
+const gotTheLock = app.requestSingleInstanceLock()
+
+if (!gotTheLock) {
+  // Another instance is already running — quit immediately
+  console.log('[Prattle] Another instance is already running. Focusing existing window.')
+  app.quit()
+} else {
+  // When a second instance tries to launch, focus the existing window instead
+  app.on('second-instance', () => {
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore()
+      mainWindow.show()
+      mainWindow.focus()
+    }
+  })
 }
 
 app.whenReady().then(() => {
@@ -662,8 +735,8 @@ ipcMain.handle('paste-to-external', async (_, text: string) => {
     // 2. Minimize Prattle so previous window regains focus
     mainWindow.minimize()
 
-    // 3. Wait for focus to shift
-    await new Promise(resolve => setTimeout(resolve, 400))
+    // 3. Wait for focus to shift (500ms gives the OS time to activate the previous window)
+    await new Promise(resolve => setTimeout(resolve, 500))
 
     // 4. Simulate Ctrl+V via PowerShell
     await new Promise<void>((resolve, reject) => {
@@ -699,10 +772,13 @@ ipcMain.handle('auto-type-text', async (_, text: string) => {
     // 1. Copy text to clipboard
     clipboard.writeText(text)
 
-    // 2. Brief delay for clipboard
-    await new Promise(resolve => setTimeout(resolve, 100))
+    // 2. Wait for clipboard to settle and OS focus to stabilize
+    // 100ms was too short — some apps need longer to be ready for paste
+    await new Promise(resolve => setTimeout(resolve, 250))
 
     // 3. Simulate Ctrl+V via PowerShell (Prattle stays in background)
+    // Use a foreground-aware approach: get the current foreground window first,
+    // then send the paste keystroke to it
     await new Promise<void>((resolve, reject) => {
       exec(
         'powershell -Command "Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.SendKeys]::SendWait(\'^v\')"',

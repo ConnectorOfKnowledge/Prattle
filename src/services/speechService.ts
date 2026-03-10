@@ -1,5 +1,46 @@
 // Speech-to-text service supporting multiple providers
 
+// Known hallucination phrases that speech models produce from silence/noise.
+// Whisper in particular loves to output these when given near-empty audio.
+// Matched case-insensitively after trimming punctuation.
+const HALLUCINATION_BLOCKLIST = [
+  'the quick brown fox jumps over the lazy dog',
+  'the quick brown fox',
+  'thank you for watching',
+  'thanks for watching',
+  'subscribe to my channel',
+  'please subscribe',
+  'like and subscribe',
+  'thank you for listening',
+  'thanks for listening',
+  'see you next time',
+  'see you in the next video',
+  'bye bye',
+  'goodbye',
+  'you',
+  'bye',
+  'i\'m sorry',
+  'okay',
+  'so',
+  'um',
+  'uh',
+  'hmm',
+  'mhm',
+  'yeah',
+  'oh',
+  'ah',
+  'huh',
+]
+
+/**
+ * Check if transcription is a known hallucination phrase.
+ * Strips punctuation and compares case-insensitively.
+ */
+function isHallucinatedPhrase(text: string): boolean {
+  const normalized = text.toLowerCase().replace(/[.,!?;:'"()\[\]{}\-—…]/g, '').trim()
+  return HALLUCINATION_BLOCKLIST.includes(normalized)
+}
+
 export class SpeechService {
   private mediaRecorder: MediaRecorder | null = null
   private audioChunks: Blob[] = []
@@ -435,4 +476,5 @@ export function stopBrowserTranscription(): void {
   }
 }
 
+export { isHallucinatedPhrase }
 export const speechService = new SpeechService()

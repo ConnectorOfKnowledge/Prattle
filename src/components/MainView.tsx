@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
 import { useAppStore } from '../stores/appStore'
-import { speechService, transcribeWithWhisper, transcribeWithDeepgram, transcribeWithGemini, transcribeWithBrowser, stopBrowserTranscription } from '../services/speechService'
+import { speechService, transcribeWithWhisper, transcribeWithDeepgram, transcribeWithGemini, transcribeWithBrowser, stopBrowserTranscription, isHallucinatedPhrase } from '../services/speechService'
 import { processText, rewriteText, analyzeEdits, buildProcessPrompt, buildRewritePrompt } from '../services/llmService'
 import { transcribeViaProxy, processTextViaProxy } from '../services/proxyService'
 import { DICTATION_MODES } from '../constants/modes'
@@ -244,6 +244,16 @@ export default function MainView() {
       }
 
       if (!transcription.trim()) {
+        setStatusMessage('No speech detected. Try again.')
+        setRecordingState('idle')
+        isProcessingRef.current = false
+        if (window.electronAPI) window.electronAPI.hideIndicator?.()
+        return
+      }
+
+      // Block known hallucination phrases (e.g. "The quick brown fox...")
+      if (isHallucinatedPhrase(transcription)) {
+        console.warn(`[Prattle] Blocked hallucinated phrase: "${transcription}"`)
         setStatusMessage('No speech detected. Try again.')
         setRecordingState('idle')
         isProcessingRef.current = false
