@@ -110,7 +110,19 @@ export class SpeechService {
         return
       }
 
+      // Timeout guard — if onstop never fires (driver crash, etc.), force cleanup
+      // so the mic isn't left locked forever.
+      const timeout = setTimeout(() => {
+        console.error('[Prattle] stopRecording timed out — forcing cleanup')
+        const audioBlob = new Blob(this.audioChunks, {
+          type: this.getSupportedMimeType()
+        })
+        this.cleanup()
+        resolve(audioBlob)
+      }, 5000)
+
       this.mediaRecorder.onstop = () => {
+        clearTimeout(timeout)
         const audioBlob = new Blob(this.audioChunks, {
           type: this.getSupportedMimeType()
         })
@@ -215,8 +227,14 @@ export class SpeechService {
   async startVisualization(): Promise<void> {
     if (this.analyserNode) return
     try {
-      this.visualizationStream = await navigator.mediaDevices.getUserMedia({ audio: true })
-      this.setupAnalyser(this.visualizationStream)
+      // Reuse the recording stream if one is already active — opening a second
+      // getUserMedia stream can lock the mic on some Windows audio drivers.
+      if (this.stream) {
+        this.setupAnalyser(this.stream)
+      } else {
+        this.visualizationStream = await navigator.mediaDevices.getUserMedia({ audio: true })
+        this.setupAnalyser(this.visualizationStream)
+      }
     } catch (error) {
       console.error('Failed to start visualization:', error)
     }
