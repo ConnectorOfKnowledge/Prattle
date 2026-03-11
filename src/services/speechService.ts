@@ -82,9 +82,18 @@ export class SpeechService {
 
       // Start tracking audio energy for silence detection
       this.startEnergyTracking()
-    } catch (error) {
+    } catch (error: any) {
       console.error('Failed to start recording:', error)
-      throw new Error('Microphone access denied or unavailable')
+      // Provide specific error messages based on the failure reason
+      if (error?.name === 'NotAllowedError') {
+        throw new Error('Microphone permission denied. Check Windows Settings > Privacy > Microphone and enable "Let desktop apps access your microphone".')
+      } else if (error?.name === 'NotFoundError') {
+        throw new Error('No microphone detected. Please connect a microphone and try again.')
+      } else if (error?.name === 'NotReadableError') {
+        throw new Error('Microphone is in use by another application. Close other apps using the mic and try again.')
+      } else {
+        throw new Error(`Microphone error: ${error?.message || 'unknown'}`)
+      }
     }
   }
 
