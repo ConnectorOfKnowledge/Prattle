@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog, clipboard, screen, Tray, Menu, nativeImage } from 'electron'
+import { app, BrowserWindow, ipcMain, dialog, clipboard, screen, session, Tray, Menu, nativeImage } from 'electron'
 import path from 'path'
 import fs from 'fs'
 import { exec } from 'child_process'
@@ -6,6 +6,9 @@ import { uIOhook, UiohookKey } from 'uiohook-napi'
 import { autoUpdater } from 'electron-updater'
 
 const isDev = !app.isPackaged
+
+// Set the app name so Task Manager shows "Prattle" instead of "Electron"
+app.setName('Prattle')
 
 // User data directory for settings, dictionary, learned patterns
 const userDataPath = path.join(app.getPath('userData'), 'prattle-data')
@@ -577,6 +580,21 @@ if (!gotTheLock) {
 app.whenReady().then(() => {
   ensureUserDataDir()
   initializeDefaultData()
+
+  // Grant microphone permission to the renderer process
+  session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback) => {
+    if (permission === 'media') {
+      callback(true)
+    } else {
+      callback(false)
+    }
+  })
+  session.defaultSession.setPermissionCheckHandler((_webContents, permission) => {
+    if (permission === 'media') {
+      return true
+    }
+    return false
+  })
 
   // Check if launched with --hidden flag (auto-start)
   const startHidden = process.argv.includes('--hidden')
