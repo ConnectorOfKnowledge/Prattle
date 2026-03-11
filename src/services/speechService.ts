@@ -56,16 +56,11 @@ export class SpeechService {
 
   async startRecording(): Promise<void> {
     try {
-      // Log available audio devices for debugging
-      const devices = await navigator.mediaDevices.enumerateDevices()
-      const audioInputs = devices.filter(d => d.kind === 'audioinput')
-      console.log(`[Prattle] Audio input devices found: ${audioInputs.length}`, audioInputs.map(d => d.label || d.deviceId))
-
-      this.stream = await navigator.mediaDevices.getUserMedia({
-        audio: audioInputs.length > 0
-          ? { echoCancellation: true, noiseSuppression: true, sampleRate: 16000 }
-          : true // Fallback: let the browser pick any available device
-      })
+      // Use the simplest possible constraint — { audio: true } is the most
+      // compatible call and lets the browser pick the best device and settings.
+      // Specific constraints like sampleRate can cause NotFoundError on some
+      // devices that don't support the exact requested configuration.
+      this.stream = await navigator.mediaDevices.getUserMedia({ audio: true })
 
       // Set up audio visualization from the recording stream
       this.setupAnalyser(this.stream)
@@ -86,16 +81,24 @@ export class SpeechService {
       // Start tracking audio energy for silence detection
       this.startEnergyTracking()
     } catch (error: any) {
-      console.error('Failed to start recording:', error)
-      // Provide specific error messages based on the failure reason
+      console.error('[Prattle] getUserMedia failed:', error?.name, error?.message)
+
+      // Log device info for diagnostics
+      try {
+        const devices = await navigator.mediaDevices.enumerateDevices()
+        const mics = devices.filter(d => d.kind === 'audioinput')
+        console.error('[Prattle] Audio inputs available:', mics.length,
+          mics.map(d => ({ label: d.label || '(unlabeled)', id: d.deviceId.slice(0, 8) })))
+      } catch (_) { /* ignore enumeration errors */ }
+
       if (error?.name === 'NotAllowedError') {
-        throw new Error('Microphone permission denied. Check Windows Settings > Privacy > Microphone and enable "Let desktop apps access your microphone".')
-      } else if (error?.name === 'NotFoundError') {
-        throw new Error('No microphone detected. Please connect a microphone and try again.')
-      } else if (error?.name === 'NotReadableError') {
-        throw new Error('Microphone is in use by another application. Close other apps using the mic and try again.')
+        throw new Error('Microphone permission denied — open Windows Settings > Privacy & Security > Microphone and enable "Let desktop apps access your microphone"')
+      } else if (error?.name === 'NotFoundError' || error?.name === 'DevicesNotFoundError') {
+        throw new Error('No microphone found — check that a mic is connected and enabled in Windows Sound Settings (right-click speaker icon > Sound settings > Input)')
+      } else if (error?.name === 'NotReadableError' || error?.name === 'AbortError') {
+        throw new Error('Microphone is busy — close other apps using the mic and try again')
       } else {
-        throw new Error(`Microphone error: ${error?.message || 'unknown'}`)
+        throw new Error(`Microphone error (${error?.name}): ${error?.message || 'unknown'}`)
       }
     }
   }

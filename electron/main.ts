@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog, clipboard, screen, session, Tray, Menu, nativeImage } from 'electron'
+import { app, BrowserWindow, ipcMain, dialog, clipboard, screen, Tray, Menu, nativeImage } from 'electron'
 import path from 'path'
 import fs from 'fs'
 import { exec } from 'child_process'
@@ -9,10 +9,6 @@ const isDev = !app.isPackaged
 
 // Set the app name so Task Manager shows "Prattle" instead of "Electron"
 app.setName('Prattle')
-
-// Auto-select media devices without showing Chromium's device picker dialog.
-// This prevents getUserMedia from failing with NotFoundError in Electron.
-app.commandLine.appendSwitch('use-fake-ui-for-media-stream')
 
 // User data directory for settings, dictionary, learned patterns
 const userDataPath = path.join(app.getPath('userData'), 'prattle-data')
@@ -584,15 +580,6 @@ if (!gotTheLock) {
 app.whenReady().then(() => {
   ensureUserDataDir()
   initializeDefaultData()
-
-  // Grant all permissions — this is a trusted desktop app, not a web browser.
-  // Restricting non-media permissions was breaking device enumeration.
-  session.defaultSession.setPermissionRequestHandler((_webContents, _permission, callback) => {
-    callback(true)
-  })
-  session.defaultSession.setPermissionCheckHandler(() => {
-    return true
-  })
 
   // Check if launched with --hidden flag (auto-start)
   const startHidden = process.argv.includes('--hidden')
