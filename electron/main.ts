@@ -10,6 +10,10 @@ const isDev = !app.isPackaged
 // Set the app name so Task Manager shows "Prattle" instead of "Electron"
 app.setName('Prattle')
 
+// Auto-select media devices without showing Chromium's device picker dialog.
+// This prevents getUserMedia from failing with NotFoundError in Electron.
+app.commandLine.appendSwitch('use-fake-ui-for-media-stream')
+
 // User data directory for settings, dictionary, learned patterns
 const userDataPath = path.join(app.getPath('userData'), 'prattle-data')
 const legacyDataPath = path.join(app.getPath('userData'), 'voicetype-data')
@@ -607,7 +611,10 @@ app.whenReady().then(() => {
 
   createIndicatorWindow() // Pre-create so it's ready when hotkey fires
   createTray()
-  setupHotkeySystem()
+
+  // Defer uIOhook startup — the native hook can block the event loop
+  // and cause the app/installer to appear unresponsive during launch
+  setTimeout(() => setupHotkeySystem(), 500)
   setupAutoUpdater()
 
   // Apply auto-start setting
@@ -849,7 +856,10 @@ ipcMain.on('check-for-updates', () => {
 
 ipcMain.on('restart-to-update', () => {
   isQuitting = true
-  autoUpdater.quitAndInstall()
+  // Stop the native keyboard hook before restarting — it holds a thread
+  // that can block the quit/restart cycle
+  try { uIOhook.stop() } catch (_) {}
+  autoUpdater.quitAndInstall(false, true) // isSilent=false, isForceRunAfter=true
 })
 
 // App version

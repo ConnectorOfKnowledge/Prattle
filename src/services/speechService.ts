@@ -56,12 +56,15 @@ export class SpeechService {
 
   async startRecording(): Promise<void> {
     try {
+      // Log available audio devices for debugging
+      const devices = await navigator.mediaDevices.enumerateDevices()
+      const audioInputs = devices.filter(d => d.kind === 'audioinput')
+      console.log(`[Prattle] Audio input devices found: ${audioInputs.length}`, audioInputs.map(d => d.label || d.deviceId))
+
       this.stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          sampleRate: 16000,
-        }
+        audio: audioInputs.length > 0
+          ? { echoCancellation: true, noiseSuppression: true, sampleRate: 16000 }
+          : true // Fallback: let the browser pick any available device
       })
 
       // Set up audio visualization from the recording stream
