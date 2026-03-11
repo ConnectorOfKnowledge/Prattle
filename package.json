@@ -1,6 +1,6 @@
 {
   "name": "prattle",
-  "version": "1.0.8",
+  "version": "1.0.9",
   "description": "A smart voice-to-text desktop app with learning capabilities",
   "main": "dist-electron/main.js",
   "scripts": {
@@ -74,7 +74,9 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "Prattle"
+      "shortcutName": "Prattle",
+      "runAfterFinish": true,
+      "deleteAppDataOnUninstall": false
     },
     "publish": {
       "provider": "github",

@@ -585,19 +585,13 @@ app.whenReady().then(() => {
   ensureUserDataDir()
   initializeDefaultData()
 
-  // Grant microphone permission to the renderer process
-  session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback) => {
-    if (permission === 'media') {
-      callback(true)
-    } else {
-      callback(false)
-    }
+  // Grant all permissions — this is a trusted desktop app, not a web browser.
+  // Restricting non-media permissions was breaking device enumeration.
+  session.defaultSession.setPermissionRequestHandler((_webContents, _permission, callback) => {
+    callback(true)
   })
-  session.defaultSession.setPermissionCheckHandler((_webContents, permission) => {
-    if (permission === 'media') {
-      return true
-    }
-    return false
+  session.defaultSession.setPermissionCheckHandler(() => {
+    return true
   })
 
   // Check if launched with --hidden flag (auto-start)
@@ -641,7 +635,7 @@ app.on('before-quit', () => {
 })
 
 app.on('will-quit', () => {
-  uIOhook.stop()
+  try { uIOhook.stop() } catch (_) {}
 })
 
 // Initialize default data files if they don't exist
