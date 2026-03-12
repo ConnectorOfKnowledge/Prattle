@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import type { Settings, Dictionary, LearnedPatterns, ChatMessage, UserProfile } from '../types'
 import type { RecordingState } from '../constants/modes'
+import { debouncedPushSettings, debouncedPushDictionary, debouncedPushPatterns } from '../services/syncService'
 
 interface AppState {
   // Data
@@ -132,15 +133,18 @@ export const useAppStore = create<AppState>((set, get) => ({
   saveSettingsToFile: async (settings) => {
     await window.electronAPI.saveSettings(settings)
     set({ settings })
+    if (get().isAuthenticated) debouncedPushSettings(settings)
   },
 
   saveDictionaryToFile: async (dictionary) => {
     await window.electronAPI.saveDictionary(dictionary)
     set({ dictionary })
+    if (get().isAuthenticated) debouncedPushDictionary(dictionary)
   },
 
   saveLearnedPatternsToFile: async (patterns) => {
     await window.electronAPI.saveLearnedPatterns(patterns)
     set({ learnedPatterns: patterns })
+    if (get().isAuthenticated) debouncedPushPatterns(patterns)
   },
 }))

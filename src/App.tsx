@@ -9,14 +9,44 @@ import AccountView from './components/AccountView'
 import Header from './components/Header'
 import BugReporter from './components/BugReporter'
 import { getSession, getSubscriptionStatus, onAuthStateChange, exchangeOAuthCode } from './services/authService'
+import { syncOnLogin, clearSyncTimers } from './services/syncService'
 
 export default function App() {
-  const { currentView, loadAllData, settings, setUser, setIsCheckingAuth } = useAppStore()
+  const { currentView, loadAllData, settings, dictionary, learnedPatterns, setUser, setIsCheckingAuth } = useAppStore()
   const [appVersion, setAppVersion] = useState('1.0.0')
 
   useEffect(() => {
-    loadAllData()
-    window.electronAPI.getAppVersion().then(setAppVersion)
+    // Run cloud sync after login — pulls cloud data and merges with local
+    const runCloudSync = async () => {
+      const store = useAppStore.getState()
+      if (!store.settings || !store.dictionary || !store.learnedPatterns) return
+      try {
+        const result = await syncOnLogin(store.settings, store.dictionary, store.learnedPatterns)
+        // Update store with merged data (also saves locally)
+        if (result.hadCloudData) {
+          await window.electronAPI.saveSettings(result.settings)
+          await window.electronAPI.saveDictionary(result.dictionary)
+          await window.electronAPI.saveLearnedPatterns(result.patterns)
+          useAppStore.setState({
+            settings: result.settings,
+            dictionary: result.dictionary,
+            learnedPatterns: result.patterns,
+          })
+          console.log('[Prattle] Cloud sync complete — merged cloud data')
+        } else {
+          console.log('[Prattle] Cloud sync complete — pushed local data to cloud (first sync)')
+        }
+      } catch (err) {
+        console.error('[Prattle] Cloud sync failed:', err)
+      }
+    }
+
+    // Load local data first, THEN check auth (sync needs local data loaded)
+    const init = async () => {
+      await loadAllData()
+      window.electronAPI.getAppVersion().then(setAppVersion)
+      await checkAuth()
+    }
 
     // Check for existing auth session
     const checkAuth = async () => {
@@ -33,6 +63,7 @@ export default function App() {
             currentPeriodEnd: sub.currentPeriodEnd,
             cancelAtPeriodEnd: sub.cancelAtPeriodEnd,
           })
+          runCloudSync()
         }
       } catch {
         // No session — that's fine, free tier
@@ -40,7 +71,7 @@ export default function App() {
         setIsCheckingAuth(false)
       }
     }
-    checkAuth()
+    init()
 
     // Listen for auth changes (login/logout)
     const cleanupAuth = onAuthStateChange(async (session) => {
@@ -55,6 +86,7 @@ export default function App() {
           cancelAtPeriodEnd: sub.cancelAtPeriodEnd,
         })
       } else {
+        clearSyncTimers()
         setUser(null)
       }
     })
@@ -74,8 +106,9 @@ export default function App() {
             currentPeriodEnd: sub.currentPeriodEnd,
             cancelAtPeriodEnd: sub.cancelAtPeriodEnd,
           })
-          // Navigate to main view after successful login
+          // Navigate to main view and sync cloud data
           useAppStore.getState().setCurrentView('main')
+          runCloudSync()
         }
       } catch (err) {
         console.error('[Prattle] OAuth exchange failed:', err)

@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useAppStore } from '../stores/appStore'
 import { signOut, getCheckoutUrl, getPortalUrl } from '../services/authService'
+import { clearSyncTimers } from '../services/syncService'
 import { HiUser, HiCreditCard, HiArrowRightOnRectangle, HiSparkles } from 'react-icons/hi2'
 
 export default function AccountView() {
@@ -43,6 +44,7 @@ export default function AccountView() {
   const handleSignOut = async () => {
     try {
       await signOut()
+      clearSyncTimers()
       setUser(null)
       setCurrentView('auth')
     } catch (err: any) {

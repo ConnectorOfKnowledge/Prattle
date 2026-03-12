@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { DICTATION_MODES } from '../constants/modes'
 import type { RecordingState } from '../constants/modes'
 import type { Settings } from '../types'
@@ -8,19 +8,12 @@ export default function FloatingIndicator() {
   const [modeIndex, setModeIndex] = useState(0)
   const [duration, setDuration] = useState(0)
   const [targetWindow, setTargetWindow] = useState('')
-  const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Listen for recording commands from main process
   useEffect(() => {
     if (!window.electronAPI?.onRecordingCommand) return
 
     const cleanup = window.electronAPI.onRecordingCommand((command: string) => {
-      // Clear any pending hide timer when a new command comes in
-      if (hideTimerRef.current) {
-        clearTimeout(hideTimerRef.current)
-        hideTimerRef.current = null
-      }
-
       switch (command) {
         case 'start':
         case 'start-handsfree':
@@ -33,11 +26,11 @@ export default function FloatingIndicator() {
           break
         case 'stop':
           setRecordingState('processing')
-          // Show "Processing..." briefly, then hide the window entirely
-          hideTimerRef.current = setTimeout(() => {
-            setRecordingState('idle')
-            window.electronAPI?.hideIndicator()
-          }, 3000)
+          // Stay in "Processing..." state until MainView signals 'done'
+          break
+        case 'done':
+          setRecordingState('idle')
+          window.electronAPI?.hideIndicator()
           break
       }
     })
