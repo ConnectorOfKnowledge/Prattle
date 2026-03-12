@@ -1,6 +1,6 @@
 {
   "name": "prattle",
-  "version": "1.2.6",
+  "version": "1.2.7",
   "description": "A smart voice-to-text desktop app with learning capabilities",
   "main": "dist-electron/main.js",
   "scripts": {
@@ -68,6 +68,7 @@
       "icon": "build/icon.ico",
       "signAndEditExecutable": false
     },
+    "artifactName": "${productName}-Setup-${version}.${ext}",
     "nsis": {
       "oneClick": false,
       "perMachine": false,
