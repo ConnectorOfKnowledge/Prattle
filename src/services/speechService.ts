@@ -382,8 +382,11 @@ export async function transcribeWithGemini(audioBlob: Blob, apiKey: string): Pro
   // Determine the MIME type for Gemini
   const mimeType = audioBlob.type.split(';')[0] // e.g., "audio/webm"
 
+  // Use gemini-2.0-flash for transcription: it's faster, cheaper, and
+  // doesn't have the "thinking" behavior of 2.5 models that can leak
+  // internal reasoning into the output
   const response = await fetchWithTimeout(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
     {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -416,7 +419,18 @@ export async function transcribeWithGemini(audioBlob: Blob, apiKey: string): Pro
   }
 
   const result = await response.json()
-  const text = result.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || ''
+  // Extract text from the last non-thinking part (gemini-2.0-flash shouldn't
+  // have thinking parts, but this is defensive for any model)
+  const parts = result?.candidates?.[0]?.content?.parts
+  let text = ''
+  if (parts && parts.length > 0) {
+    for (let i = parts.length - 1; i >= 0; i--) {
+      if (!parts[i].thought && parts[i].text) {
+        text = parts[i].text.trim()
+        break
+      }
+    }
+  }
 
   // Catch hallucination markers and empty signals
   if (!text || text === '[EMPTY]' || text.toLowerCase() === 'empty' || text === '""' || text === "''") {

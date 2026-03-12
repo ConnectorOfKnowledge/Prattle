@@ -304,6 +304,24 @@ function getApiKeyForLLM(settings: Settings): string | undefined {
   }
 }
 
+// ---- Gemini response helper ----
+// Gemini 2.5 models return "thinking" parts (thought: true) before the actual answer.
+// We need to skip those and extract the real content.
+function extractGeminiText(result: any, fallback: string): string {
+  const parts = result?.candidates?.[0]?.content?.parts
+  if (!parts || parts.length === 0) return fallback
+
+  // Find the last non-thinking part (the actual response)
+  for (let i = parts.length - 1; i >= 0; i--) {
+    if (!parts[i].thought && parts[i].text) {
+      return parts[i].text
+    }
+  }
+
+  // If all parts are thinking parts, try the last one anyway
+  return parts[parts.length - 1]?.text || fallback
+}
+
 // ---- Provider Implementations (Single-turn) ----
 
 async function callGemini(text: string, systemPrompt: string, apiKey: string): Promise<string> {
@@ -318,6 +336,8 @@ async function callGemini(text: string, systemPrompt: string, apiKey: string): P
         generationConfig: {
           temperature: 0.3,
           maxOutputTokens: 65536,
+          // Disable thinking for text processing -- we just need clean output
+          thinkingConfig: { thinkingBudget: 0 },
         }
       }),
       timeout: 30000,
@@ -330,7 +350,7 @@ async function callGemini(text: string, systemPrompt: string, apiKey: string): P
   }
 
   const result = await response.json()
-  return result.candidates?.[0]?.content?.parts?.[0]?.text || text
+  return extractGeminiText(result, text)
 }
 
 async function callClaude(text: string, systemPrompt: string, apiKey: string): Promise<string> {
@@ -408,6 +428,7 @@ async function callGeminiChat(messages: ChatMessage[], systemPrompt: string, api
         generationConfig: {
           temperature: 0.4,
           maxOutputTokens: 4096,
+          thinkingConfig: { thinkingBudget: 0 },
         }
       }),
       timeout: 30000,
@@ -420,7 +441,7 @@ async function callGeminiChat(messages: ChatMessage[], systemPrompt: string, api
   }
 
   const result = await response.json()
-  return result.candidates?.[0]?.content?.parts?.[0]?.text || ''
+  return extractGeminiText(result, '')
 }
 
 async function callClaudeChat(messages: ChatMessage[], systemPrompt: string, apiKey: string): Promise<string> {

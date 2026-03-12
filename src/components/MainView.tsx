@@ -174,9 +174,24 @@ export default function MainView() {
       startPromiseRef.current = null
     }
 
-    // Guard: prevent duplicate stop calls
-    if (isProcessingRef.current) return
+    // Guard: prevent duplicate stop calls — but add a safety reset if it's been
+    // stuck for over 60 seconds (timeout + processing shouldn't exceed this)
+    if (isProcessingRef.current) {
+      console.warn('[Prattle] stopRecording called while already processing — skipping')
+      return
+    }
     isProcessingRef.current = true
+
+    // Safety timeout: if processing takes more than 45 seconds, force-reset to idle
+    const safetyTimeout = setTimeout(() => {
+      if (isProcessingRef.current) {
+        console.warn('[Prattle] Processing safety timeout hit — force-resetting to idle')
+        isProcessingRef.current = false
+        setRecordingState('idle')
+        setStatusMessage('Processing timed out. Try again.')
+        window.electronAPI?.hideIndicator?.()
+      }
+    }, 45000)
 
     const currentRecordingState = useAppStore.getState().recordingState
     if (currentRecordingState !== 'recording' && currentRecordingState !== 'rewrite_recording') {
@@ -383,6 +398,7 @@ export default function MainView() {
       console.error('Transcription/processing error:', error)
       setStatusMessage(`Error: ${error.message}`)
     } finally {
+      clearTimeout(safetyTimeout)
       setRecordingState('idle')
       isProcessingRef.current = false
       // Signal the floating indicator to hide (covers both success and error paths)
