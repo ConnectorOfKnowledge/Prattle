@@ -382,11 +382,10 @@ export async function transcribeWithGemini(audioBlob: Blob, apiKey: string): Pro
   // Determine the MIME type for Gemini
   const mimeType = audioBlob.type.split(';')[0] // e.g., "audio/webm"
 
-  // Use gemini-2.0-flash for transcription: it's faster, cheaper, and
-  // doesn't have the "thinking" behavior of 2.5 models that can leak
-  // internal reasoning into the output
+  // Use gemini-2.5-flash for transcription with thinking disabled
+  // to keep responses fast and avoid internal reasoning in output
   const response = await fetchWithTimeout(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
     {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -407,6 +406,7 @@ export async function transcribeWithGemini(audioBlob: Blob, apiKey: string): Pro
         generationConfig: {
           temperature: 0,
           maxOutputTokens: 1024,
+          thinkingConfig: { thinkingBudget: 0 },
         }
       }),
       timeout: 30000,
@@ -419,8 +419,8 @@ export async function transcribeWithGemini(audioBlob: Blob, apiKey: string): Pro
   }
 
   const result = await response.json()
-  // Extract text from the last non-thinking part (gemini-2.0-flash shouldn't
-  // have thinking parts, but this is defensive for any model)
+  // Extract text from the last non-thinking part (defensive — thinking is
+  // disabled via thinkingBudget: 0, but this handles edge cases)
   const parts = result?.candidates?.[0]?.content?.parts
   let text = ''
   if (parts && parts.length > 0) {
