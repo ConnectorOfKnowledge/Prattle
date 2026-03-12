@@ -4,6 +4,32 @@ import { speechService, transcribeWithWhisper, transcribeWithDeepgram, transcrib
 import { processText, rewriteText, analyzeEdits, buildProcessPrompt, buildRewritePrompt } from '../services/llmService'
 import { transcribeViaProxy, processTextViaProxy } from '../services/proxyService'
 import { DICTATION_MODES } from '../constants/modes'
+
+/**
+ * Check if LLM output diverged too far from the input transcription.
+ * If fewer than 15% of the input words appear in the output, the LLM
+ * likely hallucinated entirely new content instead of cleaning the text.
+ */
+function isLLMHallucination(input: string, output: string): boolean {
+  const inputWords = new Set(input.toLowerCase().replace(/[^\w\s]/g, '').split(/\s+/).filter(w => w.length > 2))
+  const outputWords = new Set(output.toLowerCase().replace(/[^\w\s]/g, '').split(/\s+/).filter(w => w.length > 2))
+
+  if (inputWords.size < 3) return false // Too few words to judge
+
+  let overlap = 0
+  for (const word of inputWords) {
+    if (outputWords.has(word)) overlap++
+  }
+
+  const overlapRatio = overlap / inputWords.size
+  if (overlapRatio < 0.15) {
+    console.warn(`[Prattle] LLM output diverged from input (${(overlapRatio * 100).toFixed(0)}% word overlap). Falling back to raw transcription.`)
+    console.warn(`[Prattle] Input: "${input.slice(0, 100)}..."`)
+    console.warn(`[Prattle] Output: "${output.slice(0, 100)}..."`)
+    return true
+  }
+  return false
+}
 import type { RecordingState } from '../constants/modes'
 import {
   HiMicrophone, HiStop, HiClipboard, HiTrash,
@@ -336,6 +362,12 @@ export default function MainView() {
             learnedPatterns?.patterns || [],
             settings
           )
+        }
+
+        // Safety: if LLM output has almost no words in common with the
+        // transcription, it hallucinated new content. Fall back to raw text.
+        if (isLLMHallucination(transcription, finalText)) {
+          finalText = transcription
         }
 
         setProcessedText(finalText)
