@@ -1,6 +1,7 @@
 // LLM service for text processing, tone adjustment, and learning
 
 import type { Settings, Dictionary, LearnedPattern, ChatMessage } from '../types'
+import { fetchWithTimeout } from '../utils/fetchWithTimeout'
 import { BASE_RULES, DICTATION_MODES } from '../constants/modes'
 
 // Build the system prompt and user message for text processing (used by both direct and proxy paths)
@@ -306,7 +307,7 @@ function getApiKeyForLLM(settings: Settings): string | undefined {
 // ---- Provider Implementations (Single-turn) ----
 
 async function callGemini(text: string, systemPrompt: string, apiKey: string): Promise<string> {
-  const response = await fetch(
+  const response = await fetchWithTimeout(
     `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
     {
       method: 'POST',
@@ -318,7 +319,8 @@ async function callGemini(text: string, systemPrompt: string, apiKey: string): P
           temperature: 0.3,
           maxOutputTokens: 65536,
         }
-      })
+      }),
+      timeout: 30000,
     }
   )
 
@@ -332,7 +334,7 @@ async function callGemini(text: string, systemPrompt: string, apiKey: string): P
 }
 
 async function callClaude(text: string, systemPrompt: string, apiKey: string): Promise<string> {
-  const response = await fetch('https://api.anthropic.com/v1/messages', {
+  const response = await fetchWithTimeout('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -345,7 +347,8 @@ async function callClaude(text: string, systemPrompt: string, apiKey: string): P
       max_tokens: 8192,
       system: systemPrompt,
       messages: [{ role: 'user', content: text }],
-    })
+    }),
+    timeout: 30000,
   })
 
   if (!response.ok) {
@@ -358,7 +361,7 @@ async function callClaude(text: string, systemPrompt: string, apiKey: string): P
 }
 
 async function callOpenAI(text: string, systemPrompt: string, apiKey: string): Promise<string> {
-  const response = await fetch('https://api.openai.com/v1/chat/completions', {
+  const response = await fetchWithTimeout('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -372,7 +375,8 @@ async function callOpenAI(text: string, systemPrompt: string, apiKey: string): P
       ],
       temperature: 0.3,
       max_tokens: 16384,
-    })
+    }),
+    timeout: 30000,
   })
 
   if (!response.ok) {
@@ -393,7 +397,7 @@ async function callGeminiChat(messages: ChatMessage[], systemPrompt: string, api
     parts: [{ text: msg.content }],
   }))
 
-  const response = await fetch(
+  const response = await fetchWithTimeout(
     `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
     {
       method: 'POST',
@@ -405,7 +409,8 @@ async function callGeminiChat(messages: ChatMessage[], systemPrompt: string, api
           temperature: 0.4,
           maxOutputTokens: 4096,
         }
-      })
+      }),
+      timeout: 30000,
     }
   )
 
@@ -424,7 +429,7 @@ async function callClaudeChat(messages: ChatMessage[], systemPrompt: string, api
     content: msg.content,
   }))
 
-  const response = await fetch('https://api.anthropic.com/v1/messages', {
+  const response = await fetchWithTimeout('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -437,7 +442,8 @@ async function callClaudeChat(messages: ChatMessage[], systemPrompt: string, api
       max_tokens: 4096,
       system: systemPrompt,
       messages: claudeMessages,
-    })
+    }),
+    timeout: 30000,
   })
 
   if (!response.ok) {
@@ -458,7 +464,7 @@ async function callOpenAIChat(messages: ChatMessage[], systemPrompt: string, api
     })),
   ]
 
-  const response = await fetch('https://api.openai.com/v1/chat/completions', {
+  const response = await fetchWithTimeout('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -469,7 +475,8 @@ async function callOpenAIChat(messages: ChatMessage[], systemPrompt: string, api
       messages: openaiMessages,
       temperature: 0.4,
       max_tokens: 4096,
-    })
+    }),
+    timeout: 30000,
   })
 
   if (!response.ok) {

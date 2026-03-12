@@ -1,4 +1,5 @@
 // Speech-to-text service supporting multiple providers
+import { fetchWithTimeout } from '../utils/fetchWithTimeout'
 
 // Known hallucination phrases that speech models produce from silence/noise.
 // Whisper in particular loves to output these when given near-empty audio.
@@ -305,12 +306,13 @@ export async function transcribeWithWhisper(audioBlob: Blob, apiKey: string): Pr
   // Prompt hint helps Whisper understand context and reduces hallucination on short clips
   formData.append('prompt', 'Voice dictation transcription.')
 
-  const response = await fetch('https://api.openai.com/v1/audio/transcriptions', {
+  const response = await fetchWithTimeout('https://api.openai.com/v1/audio/transcriptions', {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${apiKey}`,
     },
     body: formData,
+    timeout: 30000,
   })
 
   if (!response.ok) {
@@ -327,13 +329,14 @@ export async function transcribeWithDeepgram(audioBlob: Blob, apiKey: string): P
 
   const arrayBuffer = await audioBlob.arrayBuffer()
 
-  const response = await fetch('https://api.deepgram.com/v1/listen?model=nova-2&language=en&smart_format=true&punctuate=true', {
+  const response = await fetchWithTimeout('https://api.deepgram.com/v1/listen?model=nova-2&language=en&smart_format=true&punctuate=true', {
     method: 'POST',
     headers: {
       'Authorization': `Token ${apiKey}`,
       'Content-Type': audioBlob.type,
     },
     body: arrayBuffer,
+    timeout: 30000,
   })
 
   if (!response.ok) {
@@ -379,7 +382,7 @@ export async function transcribeWithGemini(audioBlob: Blob, apiKey: string): Pro
   // Determine the MIME type for Gemini
   const mimeType = audioBlob.type.split(';')[0] // e.g., "audio/webm"
 
-  const response = await fetch(
+  const response = await fetchWithTimeout(
     `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
     {
       method: 'POST',
@@ -402,7 +405,8 @@ export async function transcribeWithGemini(audioBlob: Blob, apiKey: string): Pro
           temperature: 0,
           maxOutputTokens: 1024,
         }
-      })
+      }),
+      timeout: 30000,
     }
   )
 

@@ -13,18 +13,22 @@ export default function SettingsView() {
   const [updateStatus, setUpdateStatus] = useState<string>('') // '', 'checking', 'available', 'downloading', 'ready', 'up-to-date', 'error', 'dev-mode'
   const [updateInfo, setUpdateInfo] = useState<any>(null)
 
+  // Clone settings into local state ONCE on mount (not on every store change)
   useEffect(() => {
-    if (settings) setLocalSettings({ ...settings })
+    if (settings && !localSettings) setLocalSettings({ ...settings })
+  }, [settings]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // One-time setup: data path, version, update listener
+  useEffect(() => {
     window.electronAPI.getUserDataPath().then(setDataPath)
     window.electronAPI.getAppVersion().then(setAppVersion)
 
-    // Listen for update status
     const cleanup = window.electronAPI.onUpdateStatus((status, info) => {
       setUpdateStatus(status)
       if (info) setUpdateInfo(info)
     })
     return cleanup
-  }, [settings])
+  }, [])
 
   if (!localSettings) return null
 
@@ -48,6 +52,10 @@ export default function SettingsView() {
       // Re-register hotkey if it changed
       if (localSettings.hotkey !== settings?.hotkey) {
         await window.electronAPI.updateHotkey(localSettings.hotkey)
+      }
+      // Apply startup toggle change
+      if (localSettings.startOnLogin !== settings?.startOnLogin) {
+        await window.electronAPI.setStartOnLogin(localSettings.startOnLogin !== false)
       }
       setSaved(true)
       setTimeout(() => setSaved(false), 2000)
@@ -272,7 +280,6 @@ export default function SettingsView() {
               checked={localSettings.startOnLogin !== false}
               onChange={(e) => {
                 updateSetting('startOnLogin', e.target.checked)
-                window.electronAPI.setStartOnLogin(e.target.checked)
               }}
               className="sr-only"
             />

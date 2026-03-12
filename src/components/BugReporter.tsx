@@ -1,12 +1,6 @@
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { HiBugAnt, HiXMark } from 'react-icons/hi2'
-import { createClient } from '@supabase/supabase-js'
-
-// Shared Supabase project (TicketDeck) — public anon key, safe to embed
-const TICKETS_URL = 'https://dgnikbbugiuuwokwenlm.supabase.co'
-const TICKETS_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRnbmlrYmJ1Z2l1dXdva3dlbmxtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI1NjQ1NTYsImV4cCI6MjA4ODE0MDU1Nn0.CHnKyacly6oFjSpcdXNEdUJ2eyt0u8JfS1BBh-WmED8'
-
-const ticketsDb = createClient(TICKETS_URL, TICKETS_KEY)
+import { getSupabase } from '../services/authService'
 
 interface BugReporterProps {
   appVersion: string
@@ -22,6 +16,7 @@ export default function BugReporter({ appVersion, currentView }: BugReporterProp
   const [submitting, setSubmitting] = useState(false)
   const [submitted, setSubmitted] = useState(false)
   const [error, setError] = useState('')
+  const lastSubmitTime = useRef(0)
 
   const reset = () => {
     setTitle('')
@@ -38,12 +33,21 @@ export default function BugReporter({ appVersion, currentView }: BugReporterProp
       return
     }
 
+    // Rate limit: 1 submission per 30 seconds
+    const now = Date.now()
+    if (now - lastSubmitTime.current < 30000) {
+      setError('Please wait before submitting another report.')
+      return
+    }
+
     setSubmitting(true)
     setError('')
+    lastSubmitTime.current = now
 
-    const context = `\n\n---\nApp: Prattle v${appVersion}\nView: ${currentView}\nOS: ${navigator.platform}\nTime: ${new Date().toISOString()}`
+    const osInfo = navigator.userAgentData?.platform || process.platform || 'unknown'
+    const context = `\n\n---\nApp: Prattle v${appVersion}\nView: ${currentView}\nOS: ${osInfo}\nTime: ${new Date().toISOString()}`
 
-    const { error: insertError } = await ticketsDb
+    const { error: insertError } = await getSupabase()
       .from('tickets')
       .insert({
         project: 'Prattle',
