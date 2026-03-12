@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog, clipboard, screen, Tray, Menu, nativeImage } from 'electron'
+import { app, BrowserWindow, ipcMain, dialog, clipboard, screen, Tray, Menu, nativeImage, shell } from 'electron'
 import path from 'path'
 import fs from 'fs'
 import { exec } from 'child_process'
@@ -9,6 +9,22 @@ const isDev = !app.isPackaged
 
 // Set the app name so Task Manager shows "Prattle" instead of "Electron"
 app.setName('Prattle')
+
+// Register prattle:// as a custom protocol for OAuth callbacks.
+// When Google redirects to prattle://auth/callback?code=..., the OS routes
+// it to this app. We catch it and forward the URL to the renderer for
+// session exchange.
+if (process.defaultApp) {
+  // In dev, we need to register with the path to electron
+  if (process.argv.length >= 2) {
+    app.setAsDefaultProtocolClient('prattle', process.execPath, [path.resolve(process.argv[1])])
+  }
+} else {
+  app.setAsDefaultProtocolClient('prattle')
+}
+
+// Store the OAuth callback URL if we receive it before the window is ready
+let pendingOAuthUrl: string | null = null
 
 // User data directory for settings, dictionary, learned patterns
 const userDataPath = path.join(app.getPath('userData'), 'prattle-data')
@@ -567,15 +583,43 @@ if (!gotTheLock) {
   console.log('[Prattle] Another instance is already running. Focusing existing window.')
   app.quit()
 } else {
-  // When a second instance tries to launch, focus the existing window instead
-  app.on('second-instance', () => {
+  // When a second instance tries to launch, focus the existing window instead.
+  // On Windows, protocol URLs (prattle://...) arrive here as argv in the second instance.
+  app.on('second-instance', (_event, argv) => {
     if (mainWindow) {
       if (mainWindow.isMinimized()) mainWindow.restore()
       mainWindow.show()
       mainWindow.focus()
     }
+
+    // Check if the second instance was launched with a prattle:// URL (OAuth callback)
+    const oauthUrl = argv.find(arg => arg.startsWith('prattle://'))
+    if (oauthUrl) {
+      handleOAuthCallback(oauthUrl)
+    }
   })
 }
+
+// Handle OAuth callback URL from custom protocol
+function handleOAuthCallback(url: string) {
+  console.log('[Prattle] OAuth callback received:', url.substring(0, 80) + '...')
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('oauth-callback', url)
+    mainWindow.show()
+    mainWindow.focus()
+  } else {
+    // Window not ready yet -- store for later
+    pendingOAuthUrl = url
+  }
+}
+
+// On macOS, protocol URLs arrive via open-url event (not second-instance)
+app.on('open-url', (event, url) => {
+  event.preventDefault()
+  if (url.startsWith('prattle://')) {
+    handleOAuthCallback(url)
+  }
+})
 
 app.whenReady().then(() => {
   ensureUserDataDir()
@@ -588,6 +632,16 @@ app.whenReady().then(() => {
 
   if (startHidden) {
     mainWindow?.hide()
+  }
+
+  // If we received an OAuth callback before the window was ready, send it now
+  if (pendingOAuthUrl && mainWindow) {
+    mainWindow.webContents.once('did-finish-load', () => {
+      if (pendingOAuthUrl) {
+        sendToRenderer('oauth-callback', pendingOAuthUrl)
+        pendingOAuthUrl = null
+      }
+    })
   }
 
   createIndicatorWindow() // Pre-create so it's ready when hotkey fires

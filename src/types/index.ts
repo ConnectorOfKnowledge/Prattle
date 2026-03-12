@@ -89,6 +89,8 @@ declare global {
       getAppVersion: () => Promise<string>
       // External URL
       openExternalUrl: (url: string) => Promise<boolean>
+      // OAuth callback (from custom protocol handler)
+      onOAuthCallback: (callback: (url: string) => void) => () => void
     }
   }
 }

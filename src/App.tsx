@@ -8,7 +8,7 @@ import AuthView from './components/AuthView'
 import AccountView from './components/AccountView'
 import Header from './components/Header'
 import BugReporter from './components/BugReporter'
-import { getSession, getSubscriptionStatus, onAuthStateChange } from './services/authService'
+import { getSession, getSubscriptionStatus, onAuthStateChange, exchangeOAuthCode } from './services/authService'
 
 export default function App() {
   const { currentView, loadAllData, settings, setUser, setIsCheckingAuth } = useAppStore()
@@ -43,7 +43,7 @@ export default function App() {
     checkAuth()
 
     // Listen for auth changes (login/logout)
-    const cleanup = onAuthStateChange(async (session) => {
+    const cleanupAuth = onAuthStateChange(async (session) => {
       if (session) {
         const sub = await getSubscriptionStatus()
         setUser({
@@ -59,7 +59,33 @@ export default function App() {
       }
     })
 
-    return cleanup
+    // Listen for OAuth callbacks from the custom protocol handler (prattle://)
+    const cleanupOAuth = window.electronAPI.onOAuthCallback(async (url: string) => {
+      console.log('[Prattle] OAuth callback received in renderer')
+      try {
+        const session = await exchangeOAuthCode(url)
+        if (session) {
+          const sub = await getSubscriptionStatus()
+          setUser({
+            id: session.user.id,
+            email: session.user.email || '',
+            subscriptionStatus: sub.status,
+            plan: sub.plan,
+            currentPeriodEnd: sub.currentPeriodEnd,
+            cancelAtPeriodEnd: sub.cancelAtPeriodEnd,
+          })
+          // Navigate to main view after successful login
+          useAppStore.getState().setCurrentView('main')
+        }
+      } catch (err) {
+        console.error('[Prattle] OAuth exchange failed:', err)
+      }
+    })
+
+    return () => {
+      cleanupAuth()
+      cleanupOAuth()
+    }
   }, [])
 
   // Show loading while data loads
