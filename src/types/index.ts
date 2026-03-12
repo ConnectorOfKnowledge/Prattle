@@ -75,6 +75,7 @@ declare global {
       writeFile: (filePath: string, content: string) => Promise<boolean>
       readFile: (filePath: string) => Promise<string>
       hideIndicator: () => void
+      sendHasCommittedText: (hasText: boolean) => void
       onRecordingCommand: (callback: (command: string, data?: any) => void) => () => void
       // Target window tracking (shows which app will receive text)
       onTargetWindow: (callback: (title: string) => void) => () => void

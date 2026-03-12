@@ -366,9 +366,15 @@ export async function transcribeWithGemini(audioBlob: Blob, apiKey: string): Pro
 
   // Convert audio blob to base64
   const arrayBuffer = await audioBlob.arrayBuffer()
-  const base64Audio = btoa(
-    new Uint8Array(arrayBuffer).reduce((data, byte) => data + String.fromCharCode(byte), '')
-  )
+  // Process in chunks to avoid O(n²) string concatenation
+  const bytes = new Uint8Array(arrayBuffer)
+  const CHUNK_SIZE = 8192
+  const chunks: string[] = []
+  for (let i = 0; i < bytes.length; i += CHUNK_SIZE) {
+    const chunk = bytes.subarray(i, Math.min(i + CHUNK_SIZE, bytes.length))
+    chunks.push(String.fromCharCode(...chunk))
+  }
+  const base64Audio = btoa(chunks.join(''))
 
   // Determine the MIME type for Gemini
   const mimeType = audioBlob.type.split(';')[0] // e.g., "audio/webm"

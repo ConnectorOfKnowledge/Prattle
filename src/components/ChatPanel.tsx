@@ -92,7 +92,7 @@ export default function ChatPanel({ contextText, contextLabel, systemInstruction
       <span key={i}>
         {part}
         {i < parts.length - 1 && (
-          <span className="inline-block bg-purple-100 text-purple-700 text-xs px-2 py-0.5 rounded mt-1">
+          <span className="inline-block bg-cd-rewrite/20 text-cd-rewrite text-xs px-2 py-0.5 rounded mt-1">
             Modified version ready to apply
           </span>
         )}
@@ -101,25 +101,25 @@ export default function ChatPanel({ contextText, contextLabel, systemInstruction
   }
 
   return (
-    <div className="w-80 border-l border-surface-200 bg-white flex flex-col h-full shrink-0">
+    <div className="w-80 border-l border-white/5 bg-cd-card flex flex-col h-full shrink-0">
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-surface-200">
-        <h3 className="font-medium text-sm text-gray-800">Modify with AI</h3>
+      <div className="flex items-center justify-between px-4 py-3 border-b border-white/5">
+        <h3 className="font-medium text-sm text-cd-text">Modify with AI</h3>
         <button onClick={onClose} className="btn-icon">
           <HiXMark className="w-4 h-4" />
         </button>
       </div>
 
       {/* Context preview */}
-      <div className="px-4 py-2 border-b border-surface-100 bg-surface-50">
-        <p className="text-[10px] font-medium text-gray-500 uppercase tracking-wider">{contextLabel}</p>
-        <p className="text-xs text-gray-600 mt-1 line-clamp-3">{contextText || 'No content'}</p>
+      <div className="px-4 py-2 border-b border-white/10 bg-cd-bg">
+        <p className="text-[10px] font-medium text-cd-subtle uppercase tracking-wider">{contextLabel}</p>
+        <p className="text-xs text-cd-subtle mt-1 line-clamp-3">{contextText || 'No content'}</p>
       </div>
 
       {/* Messages */}
       <div className="flex-1 overflow-y-auto p-3 space-y-3">
         {messages.length === 0 && (
-          <div className="text-center text-xs text-gray-400 mt-8">
+          <div className="text-center text-xs text-cd-subtle/60 mt-8">
             <p>Ask the AI to make changes.</p>
             <p className="mt-1">e.g., "Make it more formal" or "Add a rule about bullet points"</p>
           </div>
@@ -129,8 +129,8 @@ export default function ChatPanel({ contextText, contextLabel, systemInstruction
           <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
             <div className={`max-w-[90%] rounded-xl px-3 py-2 text-sm ${
               msg.role === 'user'
-                ? 'bg-primary-500 text-white'
-                : 'bg-surface-100 text-gray-800'
+                ? 'bg-cd-accent text-white'
+                : 'bg-white/5 text-cd-text'
             }`}>
               <div className="whitespace-pre-wrap break-words text-xs leading-relaxed">
                 {renderContent(msg.content)}
@@ -141,11 +141,11 @@ export default function ChatPanel({ contextText, contextLabel, systemInstruction
 
         {isLoading && (
           <div className="flex justify-start">
-            <div className="bg-surface-100 rounded-xl px-3 py-2">
+            <div className="bg-white/5 rounded-xl px-3 py-2">
               <div className="flex gap-1">
-                <div className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
-                <div className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
-                <div className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+                <div className="w-1.5 h-1.5 bg-cd-subtle/60 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+                <div className="w-1.5 h-1.5 bg-cd-subtle/60 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+                <div className="w-1.5 h-1.5 bg-cd-subtle/60 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
               </div>
             </div>
           </div>
@@ -156,7 +156,7 @@ export default function ChatPanel({ contextText, contextLabel, systemInstruction
 
       {/* Apply button */}
       {lastModifiedText && (
-        <div className="px-3 py-2 border-t border-surface-100">
+        <div className="px-3 py-2 border-t border-white/10">
           <button
             onClick={handleApply}
             className="w-full btn-primary text-sm flex items-center justify-center gap-2"
@@ -168,13 +168,13 @@ export default function ChatPanel({ contextText, contextLabel, systemInstruction
       )}
 
       {applied && (
-        <div className="px-3 py-1.5 bg-green-50 text-green-700 text-xs text-center">
+        <div className="px-3 py-1.5 bg-green-900/20 text-green-400 text-xs text-center">
           Applied!
         </div>
       )}
 
       {/* Input */}
-      <div className="p-3 border-t border-surface-200">
+      <div className="p-3 border-t border-white/5">
         <div className="flex gap-2">
           <textarea
             ref={inputRef}
@@ -182,13 +182,13 @@ export default function ChatPanel({ contextText, contextLabel, systemInstruction
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder="Ask for changes..."
-            className="flex-1 resize-none border border-surface-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-300 focus:border-primary-400"
+            className="textarea-field flex-1 resize-none text-sm"
             rows={2}
           />
           <button
             onClick={handleSend}
             disabled={!input.trim() || isLoading}
-            className="self-end p-2 rounded-lg bg-primary-500 text-white hover:bg-primary-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            className="self-end p-2 rounded-lg bg-cd-accent text-white hover:bg-cd-accent/80 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
             <HiPaperAirplane className="w-4 h-4" />
           </button>

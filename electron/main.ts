@@ -906,7 +906,6 @@ ipcMain.handle('get-app-version', () => {
 
 // Open external URL (for Stripe checkout, portal, etc.)
 ipcMain.handle('open-external-url', (_, url: string) => {
-  const { shell } = require('electron')
   shell.openExternal(url)
   return true
 })

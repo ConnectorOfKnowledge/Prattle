@@ -10,7 +10,7 @@ export function buildProcessPrompt(
   dictionary: Dictionary,
   learnedPatterns: LearnedPattern[],
   settings: Settings
-): { systemPrompt: string; userMessage: string; processedText: string } | null {
+): { systemPrompt: string; userMessage: string } | null {
   const mode = DICTATION_MODES[modeIndex]
   if (!mode) return null
 
@@ -37,7 +37,7 @@ export function buildProcessPrompt(
 
   const userMessage = `[Voice dictation transcription to clean up]:\n${text}`
 
-  return { systemPrompt, userMessage, processedText: text }
+  return { systemPrompt, userMessage }
 }
 
 // Build the system prompt for rewrite mode (used by both direct and proxy paths)

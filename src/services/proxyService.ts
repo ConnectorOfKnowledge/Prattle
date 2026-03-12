@@ -5,12 +5,15 @@ const PROXY_BASE = 'https://prattle.app'  // TODO: Update with actual domain
 // Convert Blob to base64 string
 async function blobToBase64(blob: Blob): Promise<string> {
   const buffer = await blob.arrayBuffer()
+  // Process in chunks to avoid O(n²) string concatenation
   const bytes = new Uint8Array(buffer)
-  let binary = ''
-  for (let i = 0; i < bytes.length; i++) {
-    binary += String.fromCharCode(bytes[i])
+  const CHUNK_SIZE = 8192
+  const chunks: string[] = []
+  for (let i = 0; i < bytes.length; i += CHUNK_SIZE) {
+    const chunk = bytes.subarray(i, Math.min(i + CHUNK_SIZE, bytes.length))
+    chunks.push(String.fromCharCode(...chunk))
   }
-  return btoa(binary)
+  return btoa(chunks.join(''))
 }
 
 /**

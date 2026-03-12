@@ -40,13 +40,9 @@ export default function MainView() {
 
   const currentMode = settings ? DICTATION_MODES[settings.currentModeIndex] : DICTATION_MODES[0]
 
-  // Notify main process about committed text state (for rewrite mode detection)
+  // Notify main process about committed text state (for rewrite mode detection via hotkey)
   useEffect(() => {
-    if (window.electronAPI) {
-      const ipcRenderer = (window as any).require?.('electron')?.ipcRenderer
-      // Use a simple approach: send via the existing IPC
-      // The main process listens for 'has-committed-text'
-    }
+    window.electronAPI?.sendHasCommittedText?.(!!lastCommittedText)
   }, [lastCommittedText])
 
   // Recording timer
@@ -520,7 +516,7 @@ export default function MainView() {
 
       {/* Status message */}
       <p className="text-center text-sm text-cd-subtle">
-        {isRecording ? statusMessage : isProcessing ? statusMessage : statusMessage}
+        {statusMessage}
       </p>
 
       {/* Setup warnings */}
