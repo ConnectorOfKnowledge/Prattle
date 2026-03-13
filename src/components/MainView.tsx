@@ -357,6 +357,8 @@ export default function MainView() {
     } finally {
       setRecordingState('idle')
       isProcessingRef.current = false
+      // Always hide the floating indicator when processing completes (success or error)
+      if (window.electronAPI) window.electronAPI.hideIndicator?.()
     }
   }, [settings, dictionary, learnedPatterns])
 
