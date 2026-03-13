@@ -264,8 +264,8 @@ function createIndicatorWindow() {
 
   const primaryDisplay = screen.getPrimaryDisplay()
   const { width: screenW } = primaryDisplay.workAreaSize
-  const indicatorW = 380
-  const indicatorH = 56
+  const indicatorW = 420
+  const indicatorH = 100
 
   indicatorWindow = new BrowserWindow({
     width: indicatorW,
