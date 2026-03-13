@@ -316,6 +316,8 @@ function showIndicator() {
 
 function hideIndicator() {
   if (indicatorWindow && !indicatorWindow.isDestroyed()) {
+    // Tell the indicator component to reset its state before hiding
+    indicatorWindow.webContents.send('recording-command', 'done')
     indicatorWindow.hide()
   }
 }

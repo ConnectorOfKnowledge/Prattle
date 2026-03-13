@@ -28,6 +28,10 @@ export default function FloatingIndicator() {
           // Stay visible in processing state until MainView calls hideIndicator
           setRecordingState('processing')
           break
+        case 'done':
+          // Reset to idle when processing is complete (sent by main process on hide)
+          setRecordingState('idle')
+          break
       }
     })
 
