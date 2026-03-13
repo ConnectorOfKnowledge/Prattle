@@ -1,4 +1,5 @@
 import { createClient, SupabaseClient, Session } from '@supabase/supabase-js'
+import { fetchWithTimeout } from '../utils/fetchWithTimeout'
 
 // Shared Supabase project (same as BrainLink, TicketDeck, etc.)
 // These are public keys -- safe to embed in client code
@@ -145,8 +146,9 @@ export async function getSubscriptionStatus(): Promise<SubscriptionInfo> {
   }
 
   try {
-    const response = await fetch(`${PROXY_BASE}/api/auth/subscription`, {
+    const response = await fetchWithTimeout(`${PROXY_BASE}/api/auth/subscription`, {
       headers: { 'Authorization': `Bearer ${token}` },
+      timeout: 5000,
     })
 
     if (!response.ok) {
@@ -165,13 +167,14 @@ export async function getCheckoutUrl(priceId: string): Promise<string | null> {
   if (!token) return null
 
   try {
-    const response = await fetch(`${PROXY_BASE}/api/stripe/checkout`, {
+    const response = await fetchWithTimeout(`${PROXY_BASE}/api/stripe/checkout`, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${token}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({ priceId }),
+      timeout: 5000,
     })
 
     if (!response.ok) return null
@@ -187,9 +190,10 @@ export async function getPortalUrl(): Promise<string | null> {
   if (!token) return null
 
   try {
-    const response = await fetch(`${PROXY_BASE}/api/stripe/portal`, {
+    const response = await fetchWithTimeout(`${PROXY_BASE}/api/stripe/portal`, {
       method: 'POST',
       headers: { 'Authorization': `Bearer ${token}` },
+      timeout: 5000,
     })
 
     if (!response.ok) return null

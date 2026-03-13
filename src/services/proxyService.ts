@@ -1,4 +1,5 @@
 import { getAccessToken } from './authService'
+import { fetchWithTimeout } from '../utils/fetchWithTimeout'
 
 const PROXY_BASE = 'https://prattle.app'  // TODO: Update with actual domain
 
@@ -25,7 +26,7 @@ export async function transcribeViaProxy(
 
   const base64Audio = await blobToBase64(audioBlob)
 
-  const response = await fetch(`${PROXY_BASE}/api/speech/transcribe`, {
+  const response = await fetchWithTimeout(`${PROXY_BASE}/api/speech/transcribe`, {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${token}`,
@@ -36,6 +37,7 @@ export async function transcribeViaProxy(
       mimeType: audioBlob.type.split(';')[0],
       provider,
     }),
+    timeout: 5000,
   })
 
   if (!response.ok) {
@@ -58,13 +60,14 @@ export async function processTextViaProxy(
   const token = await getAccessToken()
   if (!token) throw new Error('Not authenticated')
 
-  const response = await fetch(`${PROXY_BASE}/api/llm/process`, {
+  const response = await fetchWithTimeout(`${PROXY_BASE}/api/llm/process`, {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${token}`,
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({ text, systemPrompt, provider }),
+    timeout: 5000,
   })
 
   if (!response.ok) {
@@ -87,13 +90,14 @@ export async function chatViaProxy(
   const token = await getAccessToken()
   if (!token) throw new Error('Not authenticated')
 
-  const response = await fetch(`${PROXY_BASE}/api/llm/chat`, {
+  const response = await fetchWithTimeout(`${PROXY_BASE}/api/llm/chat`, {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${token}`,
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({ messages, systemPrompt, provider }),
+    timeout: 5000,
   })
 
   if (!response.ok) {
