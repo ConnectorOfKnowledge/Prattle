@@ -1,9 +1,9 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
 import { useAppStore } from '../stores/appStore'
-import { speechService, transcribeWithWhisper, transcribeWithDeepgram, transcribeWithGemini, transcribeWithBrowser, stopBrowserTranscription, isHallucinatedPhrase } from '../services/speechService'
+import { speechService, isHallucinatedPhrase } from '../services/speechService'
 import { deepgramStreamService } from '../services/deepgramStreamService'
-import { processText, rewriteText, analyzeEdits, buildProcessPrompt, buildRewritePrompt } from '../services/llmService'
-import { transcribeViaProxy, processTextViaProxy } from '../services/proxyService'
+import { analyzeEdits, buildProcessPrompt, buildRewritePrompt } from '../services/llmService'
+import { transcribeViaProxy, processTextViaProxy, getStreamToken } from '../services/proxyService'
 import { DICTATION_MODES } from '../constants/modes'
 import type { RecordingState } from '../constants/modes'
 import {
@@ -27,7 +27,6 @@ export default function MainView() {
   const [audioData, setAudioData] = useState<number[]>([])
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
-  const browserTranscriptRef = useRef<Promise<string> | null>(null)
   const isHotkeyTriggered = useRef(false)
   const isProcessingRef = useRef(false) // Guard against duplicate stop calls
   const recordingStartTime = useRef<number>(0) // Timestamp when recording started
@@ -120,48 +119,42 @@ export default function MainView() {
     // (getUserMedia can take 500ms+, and stop might arrive before it resolves)
     startPromiseRef.current = (async () => {
       try {
-        const speechProvider = settings.speechProvider
-
-        if (speechProvider === 'browser') {
-          browserTranscriptRef.current = transcribeWithBrowser()
-          speechService.startVisualization()
-        } else {
-          await speechService.startRecording()
-        }
+        await speechService.startRecording()
 
         // Apply mic gain setting
         speechService.setMicGain(settings.micGain ?? 100)
 
-        // Set up Deepgram WebSocket streaming (free tier only, not rewrite mode)
-        const userState = useAppStore.getState()
-        const isPaid = userState.user?.subscriptionStatus === 'active'
+        // Set up Deepgram WebSocket streaming (not for rewrite mode)
         isStreamingRef.current = false
 
-        if (speechProvider === 'deepgram' && settings.apiKeys.deepgram && !isPaid && !rewrite) {
+        if (!rewrite) {
           try {
-            // Get the AudioContext sample rate so Deepgram knows the encoding
+            const streamToken = await getStreamToken()
             const sampleRate = speechService.startPcmCapture((buffer) => {
               deepgramStreamService.sendAudio(buffer)
             })
 
             await deepgramStreamService.start(
-              settings.apiKeys.deepgram,
+              streamToken,
               sampleRate,
               (text, _isFinal) => {
-                // Show live transcript in the textarea as words come in
                 setEditedText(text)
               },
               (error) => {
                 console.error('[Prattle] Deepgram stream error:', error)
-                // Stream failed — will fall back to batch on stop
                 isStreamingRef.current = false
                 speechService.stopPcmCapture()
               }
             )
             isStreamingRef.current = true
-          } catch (e) {
-            // WebSocket or PCM capture failed — will fall back to batch on stop
-            console.warn('[Prattle] Deepgram streaming failed to start, will use batch:', e)
+          } catch (e: any) {
+            if (e.message === 'TRIAL_EXPIRED') {
+              setStatusMessage('Trial expired. Subscribe to continue using Prattle.')
+              setRecordingState('idle')
+              await speechService.stopRecording()
+              return
+            }
+            console.warn('[Prattle] Streaming failed, will use batch:', e)
             speechService.stopPcmCapture()
             isStreamingRef.current = false
           }
@@ -182,8 +175,6 @@ export default function MainView() {
     if (!settings) return
 
     // Wait for any pending recording start to finish before stopping
-    // (getUserMedia can take 500ms+; without this, stop arrives while
-    // state is still 'idle' and gets silently ignored)
     if (startPromiseRef.current) {
       try { await startPromiseRef.current } catch {}
       startPromiseRef.current = null
@@ -196,39 +187,27 @@ export default function MainView() {
     const currentRecordingState = useAppStore.getState().recordingState
     if (currentRecordingState !== 'recording' && currentRecordingState !== 'rewrite_recording') {
       isProcessingRef.current = false
-      return // Not actually recording — ignore stale stop
+      return // Not actually recording -- ignore stale stop
     }
 
     const wasRewrite = currentRecordingState === 'rewrite_recording'
     const wasHotkey = isHotkeyTriggered.current
     isHotkeyTriggered.current = false
 
-    // Guard: discard recordings shorter than MIN_RECORDING_MS to prevent
-    // speech model hallucination on silent/near-empty audio clips
+    // Guard: discard recordings shorter than MIN_RECORDING_MS
     const elapsed = Date.now() - recordingStartTime.current
     if (elapsed < MIN_RECORDING_MS) {
-      // Stop the mic but don't send to API
-      const speechProvider = settings.speechProvider
       if (isStreamingRef.current) {
         speechService.stopPcmCapture()
         deepgramStreamService.abort()
         isStreamingRef.current = false
-        setEditedText('') // Clear any partial streaming text
+        setEditedText('')
       }
-      if (speechProvider === 'browser') {
-        stopBrowserTranscription()
-        speechService.stopVisualization()
-        browserTranscriptRef.current = null
-      } else {
-        await speechService.stopRecording() // discard the audio blob
-      }
-      setStatusMessage('Recording too short — hold longer to dictate')
+      await speechService.stopRecording()
+      setStatusMessage('Recording too short -- hold longer to dictate')
       setRecordingState('idle')
       isProcessingRef.current = false
-      // Hide indicator
-      if (window.electronAPI) {
-        window.electronAPI.hideIndicator?.()
-      }
+      if (window.electronAPI) window.electronAPI.hideIndicator?.()
       return
     }
 
@@ -244,55 +223,26 @@ export default function MainView() {
 
     try {
       let transcription = ''
-      const speechProvider = settings.speechProvider
-
-      // Check if user is on paid tier (route through proxy)
-      const userState = useAppStore.getState()
-      const isPaidUser = userState.user?.subscriptionStatus === 'active'
 
       if (isStreamingRef.current) {
-        // Deepgram WebSocket streaming — transcript accumulated in real-time
+        // Deepgram WebSocket streaming -- transcript accumulated in real-time
         speechService.stopPcmCapture()
-        await speechService.stopRecording() // stop the mic
-        transcription = await deepgramStreamService.stop() // flush and get final transcript
+        await speechService.stopRecording()
+        transcription = await deepgramStreamService.stop()
         isStreamingRef.current = false
-      } else if (speechProvider === 'browser') {
-        stopBrowserTranscription()
-        speechService.stopVisualization()
-        transcription = browserTranscriptRef.current ? await browserTranscriptRef.current : ''
-        browserTranscriptRef.current = null
       } else if (!wasHotkey && !audioStats.speechDetected) {
-        // No speech energy detected — don't waste an API call
-        // Skip this check for hotkey recordings: the user intentionally pressed
-        // the key, and energy tracking may not work in hidden/background windows
+        // No speech energy detected -- don't waste an API call
         console.log(`[Prattle] No speech detected (peak: ${audioStats.peakEnergy.toFixed(3)}, avg: ${audioStats.avgEnergy.toFixed(3)})`)
-        await speechService.stopRecording() // discard the audio
+        await speechService.stopRecording()
         setStatusMessage('No speech detected. Try speaking louder or check your mic.')
         setRecordingState('idle')
         isProcessingRef.current = false
         if (window.electronAPI) window.electronAPI.hideIndicator?.()
         return
-      } else if (isPaidUser) {
-        // Paid tier: route through proxy server
-        const audioBlob = await speechService.stopRecording()
-        transcription = await transcribeViaProxy(audioBlob, speechProvider)
       } else {
-        // Free tier: direct API calls with user's own keys
+        // Batch transcription via proxy
         const audioBlob = await speechService.stopRecording()
-
-        if (speechProvider === 'gemini') {
-          const key = settings.apiKeys.gemini
-          if (!key) throw new Error('Google Gemini API key required. Add it in Settings.')
-          transcription = await transcribeWithGemini(audioBlob, key)
-        } else if (speechProvider === 'whisper') {
-          const key = settings.apiKeys.openai
-          if (!key) throw new Error('OpenAI API key required for Whisper. Add it in Settings.')
-          transcription = await transcribeWithWhisper(audioBlob, key)
-        } else if (speechProvider === 'deepgram') {
-          const key = settings.apiKeys.deepgram
-          if (!key) throw new Error('Deepgram API key required. Add it in Settings.')
-          transcription = await transcribeWithDeepgram(audioBlob, key)
-        }
+        transcription = await transcribeViaProxy(audioBlob, 'deepgram')
       }
 
       if (!transcription.trim()) {
@@ -303,7 +253,7 @@ export default function MainView() {
         return
       }
 
-      // Block known hallucination phrases (e.g. "The quick brown fox...")
+      // Block known hallucination phrases
       if (isHallucinatedPhrase(transcription)) {
         console.warn(`[Prattle] Blocked hallucinated phrase: "${transcription}"`)
         setStatusMessage('No speech detected. Try again.')
@@ -318,8 +268,6 @@ export default function MainView() {
       const recordingSeconds = recordingDurationMs / 1000
       const wordsPerSecond = wordCount / recordingSeconds
 
-      // Normal speech is 2-3 words/second. Over 5 words/second is suspicious.
-      // Over 8 words/second for a short recording is almost certainly hallucinated.
       if (recordingSeconds < 3 && wordsPerSecond > 6) {
         console.warn(`[Prattle] Suspicious transcription: ${wordCount} words in ${recordingSeconds.toFixed(1)}s (${wordsPerSecond.toFixed(1)} wps)`)
         console.warn(`[Prattle] Rejected text: "${transcription}"`)
@@ -343,15 +291,8 @@ export default function MainView() {
         // Rewrite mode: use the transcription as an instruction to modify lastCommittedText
         setStatusMessage('Rewriting...')
         const currentCommitted = useAppStore.getState().lastCommittedText
-
-        let rewritten: string
-        if (isPaidUser) {
-          // Paid tier: route through proxy
-          const { systemPrompt, userMessage } = buildRewritePrompt(currentCommitted, transcription)
-          rewritten = await processTextViaProxy(userMessage, systemPrompt, settings.llmProvider)
-        } else {
-          rewritten = await rewriteText(currentCommitted, transcription, settings)
-        }
+        const { systemPrompt, userMessage } = buildRewritePrompt(currentCommitted, transcription)
+        const rewritten = await processTextViaProxy(userMessage, systemPrompt, settings.llmProvider)
 
         setProcessedText(rewritten)
         setLastCommittedText(rewritten)
@@ -369,29 +310,18 @@ export default function MainView() {
         const modeIndex = settings.currentModeIndex
         let finalText: string
 
-        if (isPaidUser) {
-          // Paid tier: build prompt locally, process via proxy
-          const promptData = buildProcessPrompt(
-            transcription, modeIndex,
-            dictionary || { replacements: {} },
-            learnedPatterns?.patterns || [],
-            settings
+        const promptData = buildProcessPrompt(
+          transcription, modeIndex,
+          dictionary || { replacements: {} },
+          learnedPatterns?.patterns || [],
+          settings
+        )
+        if (promptData) {
+          finalText = await processTextViaProxy(
+            promptData.userMessage, promptData.systemPrompt, settings.llmProvider
           )
-          if (promptData) {
-            finalText = await processTextViaProxy(
-              promptData.userMessage, promptData.systemPrompt, settings.llmProvider
-            )
-          } else {
-            finalText = transcription
-          }
         } else {
-          // Free tier: direct API calls
-          finalText = await processText(
-            transcription, modeIndex,
-            dictionary || { replacements: {} },
-            learnedPatterns?.patterns || [],
-            settings
-          )
+          finalText = transcription
         }
 
         setProcessedText(finalText)
@@ -408,7 +338,14 @@ export default function MainView() {
       }
     } catch (error: any) {
       console.error('Transcription/processing error:', error)
-      setStatusMessage(`Error: ${error.message}`)
+      if (error.message === 'TRIAL_EXPIRED' || error.message?.includes('Trial expired')) {
+        setStatusMessage('Your trial has expired. Subscribe to continue using Prattle.')
+      } else if (error.message === 'Not authenticated') {
+        setStatusMessage('Please sign in to use Prattle.')
+        useAppStore.getState().setCurrentView('auth')
+      } else {
+        setStatusMessage(`Error: ${error.message}`)
+      }
     } finally {
       // Clean up streaming if it's still active (e.g. after an error)
       if (isStreamingRef.current) {
@@ -429,7 +366,7 @@ export default function MainView() {
   useEffect(() => { startRecordingRef.current = startRecordingInternal }, [startRecordingInternal])
   useEffect(() => { stopRecordingRef.current = stopRecordingInternal }, [stopRecordingInternal])
 
-  // Listen for hotkey recording commands from main process — register ONCE on mount
+  // Listen for hotkey recording commands from main process -- register ONCE on mount
   useEffect(() => {
     if (!window.electronAPI?.onRecordingCommand) return
 
@@ -451,7 +388,7 @@ export default function MainView() {
     })
 
     return cleanup
-  }, []) // Empty deps — only register once
+  }, []) // Empty deps -- only register once
 
   const handleToggleRecording = useCallback(async () => {
     if (!settings) return
@@ -553,12 +490,6 @@ export default function MainView() {
     }
   }, [editedText])
 
-  const hasSpeechKey = settings?.speechProvider === 'browser'
-    || (settings?.speechProvider === 'gemini' && settings?.apiKeys?.gemini)
-    || (settings?.speechProvider === 'whisper' && settings?.apiKeys?.openai)
-    || (settings?.speechProvider === 'deepgram' && settings?.apiKeys?.deepgram)
-  const hasLlmKey = settings?.apiKeys?.gemini || settings?.apiKeys?.claude || settings?.apiKeys?.openai
-
   // Mic button color/state
   const getMicButtonClasses = () => {
     if (isProcessing) return 'bg-cd-mic-proc text-white cursor-not-allowed'
@@ -581,21 +512,8 @@ export default function MainView() {
 
       {/* Status message */}
       <p className="text-center text-sm text-cd-subtle">
-        {isRecording ? statusMessage : isProcessing ? statusMessage : statusMessage}
+        {statusMessage}
       </p>
-
-      {/* Setup warnings */}
-      {!hasSpeechKey && (
-        <div className="bg-amber-900/30 border border-amber-700/50 rounded-xl px-4 py-3 text-sm text-amber-300">
-          <strong>Setup needed:</strong> Add a speech API key in Settings to enable voice transcription.
-        </div>
-      )}
-
-      {!hasLlmKey && (
-        <div className="bg-blue-900/30 border border-blue-700/50 rounded-xl px-4 py-3 text-sm text-blue-300">
-          <strong>Optional:</strong> Add an LLM API key in Settings to enable smart text processing.
-        </div>
-      )}
 
       {/* Large mic button */}
       <div className="flex justify-center">
