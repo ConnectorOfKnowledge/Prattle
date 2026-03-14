@@ -1,9 +1,16 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { useAppStore } from '../stores/appStore'
 import { HiLockClosed } from 'react-icons/hi2'
+import { getAccessToken } from '../services/authService'
+import { fetchWithTimeout } from '../utils/fetchWithTimeout'
+
+const PROXY_BASE = 'https://voicetype-web.vercel.app'
 
 export default function SubscriptionGate({ children }: { children: React.ReactNode }) {
   const { user, refreshSubscription } = useAppStore()
+  const [promoCode, setPromoCode] = useState('')
+  const [promoStatus, setPromoStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle')
+  const [promoMessage, setPromoMessage] = useState('')
 
   // Refresh subscription status on mount and every 5 minutes
   useEffect(() => {
@@ -13,6 +20,47 @@ export default function SubscriptionGate({ children }: { children: React.ReactNo
       return () => clearInterval(interval)
     }
   }, [user?.id])
+
+  const handlePromoSubmit = async () => {
+    if (!promoCode.trim()) return
+
+    setPromoStatus('loading')
+    setPromoMessage('')
+
+    try {
+      const token = await getAccessToken()
+      if (!token) {
+        setPromoStatus('error')
+        setPromoMessage('Not authenticated. Please restart the app.')
+        return
+      }
+
+      const response = await fetchWithTimeout(`${PROXY_BASE}/api/auth/promo`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ code: promoCode.trim() }),
+        timeout: 15000,
+      })
+
+      const result = await response.json()
+
+      if (response.ok && result.success) {
+        setPromoStatus('success')
+        setPromoMessage(result.message)
+        // Refresh subscription to pick up the new trial period
+        setTimeout(() => refreshSubscription(), 1000)
+      } else {
+        setPromoStatus('error')
+        setPromoMessage(result.error || 'Invalid promo code')
+      }
+    } catch (err: any) {
+      setPromoStatus('error')
+      setPromoMessage('Could not verify code. Check your connection.')
+    }
+  }
 
   if (!user) return null
 
@@ -42,6 +90,44 @@ export default function SubscriptionGate({ children }: { children: React.ReactNo
         >
           View Plans & Subscribe
         </button>
+
+        {/* Promo code section */}
+        <div className="w-full max-w-xs space-y-3 pt-2">
+          <div className="flex items-center gap-2">
+            <div className="flex-1 h-px bg-cd-border" />
+            <span className="text-xs text-cd-subtle">or enter a promo code</span>
+            <div className="flex-1 h-px bg-cd-border" />
+          </div>
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={promoCode}
+              onChange={(e) => {
+                setPromoCode(e.target.value.toUpperCase())
+                if (promoStatus !== 'idle') {
+                  setPromoStatus('idle')
+                  setPromoMessage('')
+                }
+              }}
+              onKeyDown={(e) => e.key === 'Enter' && handlePromoSubmit()}
+              placeholder="PROMO CODE"
+              className="flex-1 px-3 py-2 rounded-lg text-sm bg-cd-bg-secondary border border-cd-border text-cd-text placeholder-cd-subtle text-center tracking-widest font-mono focus:outline-none focus:border-cd-accent"
+              disabled={promoStatus === 'loading'}
+            />
+            <button
+              onClick={handlePromoSubmit}
+              disabled={promoStatus === 'loading' || !promoCode.trim()}
+              className="px-4 py-2 rounded-lg text-sm font-medium bg-cd-bg-secondary border border-cd-border text-cd-text hover:bg-cd-bg-tertiary transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              {promoStatus === 'loading' ? '...' : 'Apply'}
+            </button>
+          </div>
+          {promoMessage && (
+            <p className={`text-xs ${promoStatus === 'success' ? 'text-green-400' : 'text-red-400'}`}>
+              {promoMessage}
+            </p>
+          )}
+        </div>
       </div>
     )
   }
