@@ -1,7 +1,7 @@
 import { getAccessToken } from './authService'
 import { fetchWithTimeout } from '../utils/fetchWithTimeout'
 
-const PROXY_BASE = 'https://prattle.app'  // TODO: Update with actual domain
+const PROXY_BASE = 'https://voicetype-web.vercel.app'
 
 // Convert Blob to base64 string
 async function blobToBase64(blob: Blob): Promise<string> {
@@ -15,11 +15,39 @@ async function blobToBase64(blob: Blob): Promise<string> {
 }
 
 /**
- * Transcribe audio via the proxy server (paid tier)
+ * Get a Deepgram streaming token from the proxy (authenticated users only)
+ */
+export async function getStreamToken(): Promise<string> {
+  const token = await getAccessToken()
+  if (!token) throw new Error('Not authenticated')
+
+  const response = await fetchWithTimeout(`${PROXY_BASE}/api/speech/stream-token`, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    timeout: 10000,
+  })
+
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ error: 'Failed to get stream token' }))
+    if (err.code === 'TRIAL_EXPIRED') {
+      throw new Error('TRIAL_EXPIRED')
+    }
+    throw new Error(err.error || `Stream token error: ${response.status}`)
+  }
+
+  const result = await response.json()
+  return result.token
+}
+
+/**
+ * Transcribe audio via the proxy server
  */
 export async function transcribeViaProxy(
   audioBlob: Blob,
-  provider: string = 'gemini'
+  provider: string = 'deepgram'
 ): Promise<string> {
   const token = await getAccessToken()
   if (!token) throw new Error('Not authenticated')
@@ -37,11 +65,14 @@ export async function transcribeViaProxy(
       mimeType: audioBlob.type.split(';')[0],
       provider,
     }),
-    timeout: 5000,
+    timeout: 60000,
   })
 
   if (!response.ok) {
     const err = await response.json().catch(() => ({ error: 'Proxy error' }))
+    if (err.code === 'TRIAL_EXPIRED') {
+      throw new Error('TRIAL_EXPIRED')
+    }
     throw new Error(err.error || `Proxy error: ${response.status}`)
   }
 
@@ -50,7 +81,7 @@ export async function transcribeViaProxy(
 }
 
 /**
- * Process text via the proxy server (paid tier)
+ * Process text via the proxy server
  */
 export async function processTextViaProxy(
   text: string,
@@ -67,11 +98,14 @@ export async function processTextViaProxy(
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({ text, systemPrompt, provider }),
-    timeout: 5000,
+    timeout: 30000,
   })
 
   if (!response.ok) {
     const err = await response.json().catch(() => ({ error: 'Proxy error' }))
+    if (err.code === 'TRIAL_EXPIRED') {
+      throw new Error('TRIAL_EXPIRED')
+    }
     throw new Error(err.error || `Proxy error: ${response.status}`)
   }
 
@@ -80,7 +114,7 @@ export async function processTextViaProxy(
 }
 
 /**
- * Multi-turn chat via the proxy server (paid tier)
+ * Multi-turn chat via the proxy server
  */
 export async function chatViaProxy(
   messages: { role: string; content: string }[],
@@ -97,11 +131,14 @@ export async function chatViaProxy(
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({ messages, systemPrompt, provider }),
-    timeout: 5000,
+    timeout: 30000,
   })
 
   if (!response.ok) {
     const err = await response.json().catch(() => ({ error: 'Proxy error' }))
+    if (err.code === 'TRIAL_EXPIRED') {
+      throw new Error('TRIAL_EXPIRED')
+    }
     throw new Error(err.error || `Proxy error: ${response.status}`)
   }
 

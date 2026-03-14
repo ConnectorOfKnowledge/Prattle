@@ -1,16 +1,15 @@
 import { useState, useEffect } from 'react'
 import { useAppStore } from '../stores/appStore'
 import type { Settings } from '../types'
-import { HiEye, HiEyeSlash, HiFolderOpen } from 'react-icons/hi2'
+import { HiFolderOpen } from 'react-icons/hi2'
 
 export default function SettingsView() {
   const { settings, saveSettingsToFile } = useAppStore()
   const [localSettings, setLocalSettings] = useState<Settings | null>(null)
-  const [showKeys, setShowKeys] = useState<Record<string, boolean>>({})
   const [saved, setSaved] = useState(false)
   const [dataPath, setDataPath] = useState('')
   const [appVersion, setAppVersion] = useState('')
-  const [updateStatus, setUpdateStatus] = useState<string>('') // '', 'checking', 'available', 'downloading', 'ready', 'up-to-date', 'error', 'dev-mode'
+  const [updateStatus, setUpdateStatus] = useState<string>('')
   const [updateInfo, setUpdateInfo] = useState<any>(null)
 
   useEffect(() => {
@@ -32,16 +31,6 @@ export default function SettingsView() {
     setLocalSettings(prev => prev ? { ...prev, [key]: value } : prev)
   }
 
-  const updateApiKey = (provider: string, value: string) => {
-    setLocalSettings(prev => {
-      if (!prev) return prev
-      return {
-        ...prev,
-        apiKeys: { ...prev.apiKeys, [provider]: value }
-      }
-    })
-  }
-
   const handleSave = async () => {
     if (localSettings) {
       await saveSettingsToFile(localSettings)
@@ -54,131 +43,17 @@ export default function SettingsView() {
     }
   }
 
-  const toggleShowKey = (key: string) => {
-    setShowKeys(prev => ({ ...prev, [key]: !prev[key] }))
-  }
-
-  const maskKey = (key: string | undefined) => {
-    if (!key) return ''
-    if (key.length <= 8) return '****'
-    return key.substring(0, 4) + '****' + key.substring(key.length - 4)
-  }
-
   return (
     <div className="p-4 max-w-2xl mx-auto space-y-4 slide-in">
       <h2 className="text-lg font-semibold text-cd-text">Settings</h2>
 
-      {/* Speech Provider */}
+      {/* Service Info */}
       <div className="bg-cd-card rounded-2xl border border-white/5 p-5">
-        <h3 className="font-medium text-cd-text mb-3">Speech-to-Text Provider</h3>
-        <div className="space-y-2">
-          {[
-            { id: 'browser', name: 'Browser Built-in', desc: 'Free, no API key needed. Uses Chrome speech recognition.' },
-            { id: 'gemini', name: 'Google Gemini', desc: 'Uses your Gemini API key. Free tier available.' },
-            { id: 'whisper', name: 'OpenAI Whisper', desc: 'Best accuracy, ~$0.006/min' },
-            { id: 'deepgram', name: 'Deepgram Nova-2', desc: 'Fast & accurate, real-time capable' },
-          ].map(provider => (
-            <label
-              key={provider.id}
-              className={`flex items-center gap-3 p-3 rounded-xl border cursor-pointer transition-all
-                ${localSettings.speechProvider === provider.id
-                  ? 'border-cd-accent/50 bg-cd-accent/10'
-                  : 'border-white/10 hover:border-white/20'
-                }`}
-            >
-              <input
-                type="radio"
-                name="speechProvider"
-                value={provider.id}
-                checked={localSettings.speechProvider === provider.id}
-                onChange={(e) => updateSetting('speechProvider', e.target.value as Settings['speechProvider'])}
-                className="text-cd-accent"
-              />
-              <div>
-                <div className="font-medium text-sm text-cd-text">{provider.name}</div>
-                <div className="text-xs text-cd-subtle">{provider.desc}</div>
-              </div>
-            </label>
-          ))}
-        </div>
-      </div>
-
-      {/* LLM Provider */}
-      <div className="bg-cd-card rounded-2xl border border-white/5 p-5">
-        <h3 className="font-medium text-cd-text mb-3">AI Processing Provider</h3>
-        <p className="text-xs text-cd-subtle mb-3">Used for tone adjustment, text cleaning, and prompt revision</p>
-        <div className="space-y-2">
-          {[
-            { id: 'gemini', name: 'Google Gemini', desc: 'Generous free tier, fast' },
-            { id: 'claude', name: 'Anthropic Claude', desc: 'Excellent writing quality' },
-            { id: 'openai', name: 'OpenAI GPT', desc: 'Versatile, widely used' },
-          ].map(provider => (
-            <label
-              key={provider.id}
-              className={`flex items-center gap-3 p-3 rounded-xl border cursor-pointer transition-all
-                ${localSettings.llmProvider === provider.id
-                  ? 'border-cd-accent/50 bg-cd-accent/10'
-                  : 'border-white/10 hover:border-white/20'
-                }`}
-            >
-              <input
-                type="radio"
-                name="llmProvider"
-                value={provider.id}
-                checked={localSettings.llmProvider === provider.id}
-                onChange={(e) => updateSetting('llmProvider', e.target.value as Settings['llmProvider'])}
-                className="text-cd-accent"
-              />
-              <div>
-                <div className="font-medium text-sm text-cd-text">{provider.name}</div>
-                <div className="text-xs text-cd-subtle">{provider.desc}</div>
-              </div>
-            </label>
-          ))}
-        </div>
-      </div>
-
-      {/* API Keys */}
-      <div className="bg-cd-card rounded-2xl border border-white/5 p-5">
-        <h3 className="font-medium text-cd-text mb-3">API Keys</h3>
-        <p className="text-xs text-cd-subtle mb-4">
-          Keys are stored locally on your computer only. Never sent anywhere except the API provider.
+        <h3 className="font-medium text-cd-text mb-2">Speech & AI Processing</h3>
+        <p className="text-sm text-cd-subtle">
+          Prattle uses Deepgram Nova-3 for speech recognition and AI models for text processing.
+          All processing is handled securely through Prattle's servers.
         </p>
-
-        <div className="space-y-4">
-          {[
-            { id: 'openai', label: 'OpenAI API Key', hint: 'Used for Whisper speech-to-text and GPT processing' },
-            { id: 'gemini', label: 'Google Gemini API Key', hint: 'Get from ai.google.dev' },
-            { id: 'claude', label: 'Anthropic Claude API Key', hint: 'Get from console.anthropic.com' },
-            { id: 'deepgram', label: 'Deepgram API Key', hint: 'Get from console.deepgram.com' },
-          ].map(key => (
-            <div key={key.id}>
-              <label className="block text-sm font-medium text-cd-text mb-1">{key.label}</label>
-              <div className="relative">
-                <input
-                  type={showKeys[key.id] ? 'text' : 'password'}
-                  value={showKeys[key.id]
-                    ? (localSettings.apiKeys as any)[key.id] || ''
-                    : (localSettings.apiKeys as any)[key.id]
-                      ? maskKey((localSettings.apiKeys as any)[key.id])
-                      : ''
-                  }
-                  onChange={(e) => updateApiKey(key.id, e.target.value)}
-                  onFocus={() => setShowKeys(prev => ({ ...prev, [key.id]: true }))}
-                  placeholder={`Enter your ${key.label}`}
-                  className="w-full px-4 py-2.5 rounded-xl border border-white/10 bg-cd-bg text-cd-text placeholder-cd-subtle/50 focus:outline-none focus:ring-2 focus:ring-cd-accent/50 focus:border-cd-accent/50 pr-10 text-sm font-mono"
-                />
-                <button
-                  onClick={() => toggleShowKey(key.id)}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-cd-subtle hover:text-cd-text"
-                >
-                  {showKeys[key.id] ? <HiEyeSlash className="w-4 h-4" /> : <HiEye className="w-4 h-4" />}
-                </button>
-              </div>
-              <p className="text-xs text-cd-subtle mt-1">{key.hint}</p>
-            </div>
-          ))}
-        </div>
       </div>
 
       {/* Preferences */}

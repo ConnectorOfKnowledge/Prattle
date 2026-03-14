@@ -137,9 +137,14 @@ export interface SubscriptionInfo {
   cancelAtPeriodEnd?: boolean
 }
 
-const PROXY_BASE = 'https://prattle.app'  // TODO: Update with actual domain
+const PROXY_BASE = 'https://voicetype-web.vercel.app'
 
-export async function getSubscriptionStatus(): Promise<SubscriptionInfo> {
+export interface SubscriptionResponse extends SubscriptionInfo {
+  accessType?: 'subscription' | 'trial' | 'family' | 'expired'
+  trialEndsAt?: string
+}
+
+export async function getSubscriptionStatus(): Promise<SubscriptionResponse> {
   const token = await getAccessToken()
   if (!token) {
     return { status: 'none', plan: 'free' }

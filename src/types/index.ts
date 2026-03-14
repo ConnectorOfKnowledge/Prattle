@@ -1,14 +1,14 @@
 import type { RecordingState } from '../constants/modes'
 
 export interface Settings {
-  speechProvider: 'whisper' | 'deepgram' | 'browser' | 'gemini'
-  llmProvider: 'gemini' | 'claude' | 'openai'
+  speechProvider: 'deepgram'  // All speech goes through Deepgram via proxy
+  llmProvider: 'gemini' | 'claude' | 'openai'  // Backend uses this to route
   apiKeys: {
     openai?: string
     gemini?: string
     claude?: string
     deepgram?: string
-  }
+  }  // Kept for backwards compat with settings.json on disk -- UI removed
   currentModeIndex: number
   customPrompts: Record<number, string>
   fontSize: number
@@ -21,8 +21,10 @@ export interface Settings {
 export interface UserProfile {
   id: string
   email: string
-  subscriptionStatus: 'active' | 'canceled' | 'past_due' | 'none'
-  plan: 'monthly' | 'annual' | 'free'
+  subscriptionStatus: 'active' | 'trial' | 'expired' | 'canceled' | 'past_due' | 'none'
+  plan: 'monthly' | 'annual' | 'family' | 'trial' | 'none'
+  accessType: 'subscription' | 'trial' | 'family' | 'expired'
+  trialEndsAt?: string
   currentPeriodEnd?: string
   cancelAtPeriodEnd?: boolean
 }
