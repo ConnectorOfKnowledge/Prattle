@@ -686,7 +686,7 @@ function initializeDefaultData() {
   // Default settings
   if (!fs.existsSync(getDataFilePath('settings.json'))) {
     writeJsonFile('settings.json', {
-      speechProvider: 'whisper',
+      speechProvider: 'deepgram',
       llmProvider: 'gemini',
       apiKeys: {},
       currentModeIndex: 0,

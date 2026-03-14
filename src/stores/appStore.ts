@@ -51,6 +51,9 @@ interface AppState {
   addChatMessage: (message: ChatMessage) => void
   clearChatMessages: () => void
 
+  // Subscription
+  refreshSubscription: () => Promise<void>
+
   // Data loading
   loadAllData: () => Promise<void>
   saveSettingsToFile: (settings: Settings) => Promise<void>
@@ -114,6 +117,26 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({ chatMessages: messages })
   },
   clearChatMessages: () => set({ chatMessages: [] }),
+
+  // Subscription
+  refreshSubscription: async () => {
+    const { getSubscriptionStatus } = await import('../services/authService')
+    const status = await getSubscriptionStatus()
+    const currentUser = get().user
+    if (currentUser) {
+      set({
+        user: {
+          ...currentUser,
+          subscriptionStatus: status.status as any,
+          plan: status.plan as any,
+          accessType: (status as any).accessType || 'expired',
+          trialEndsAt: (status as any).trialEndsAt,
+          currentPeriodEnd: status.currentPeriodEnd,
+          cancelAtPeriodEnd: status.cancelAtPeriodEnd,
+        }
+      })
+    }
+  },
 
   // Data loading
   loadAllData: async () => {
