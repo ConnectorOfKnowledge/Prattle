@@ -58,6 +58,10 @@ export class SpeechService {
   // Optional callback for streaming audio chunks to an external service (e.g. Deepgram WS)
   private onAudioChunk: ((chunk: Blob) => void) | null = null
 
+  // Raw PCM capture for WebSocket streaming (taps into the AudioContext chain)
+  private pcmProcessor: ScriptProcessorNode | null = null
+  private onPcmData: ((buffer: ArrayBuffer) => void) | null = null
+
   async startRecording(): Promise<void> {
     try {
       // Use the simplest possible constraint — { audio: true } is the most
@@ -179,6 +183,49 @@ export class SpeechService {
     this.onAudioChunk = callback
   }
 
+  // Start capturing raw PCM (int16) samples for WebSocket streaming.
+  // Returns the AudioContext's sample rate so the caller can tell Deepgram.
+  startPcmCapture(callback: (buffer: ArrayBuffer) => void): number {
+    if (!this.audioContext || !this.analyserNode) {
+      throw new Error('AudioContext not ready — call startRecording first')
+    }
+
+    this.onPcmData = callback
+
+    // ScriptProcessorNode taps into the audio chain to get raw samples.
+    // 4096 samples per buffer is a good balance between latency and overhead.
+    this.pcmProcessor = this.audioContext.createScriptProcessor(4096, 1, 1)
+    this.pcmProcessor.onaudioprocess = (event) => {
+      if (!this.onPcmData) return
+
+      const float32 = event.inputBuffer.getChannelData(0)
+
+      // Convert float32 (-1..1) to int16 (-32768..32767) for Deepgram's linear16 format
+      const int16 = new Int16Array(float32.length)
+      for (let i = 0; i < float32.length; i++) {
+        const s = Math.max(-1, Math.min(1, float32[i]))
+        int16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF
+      }
+
+      this.onPcmData(int16.buffer)
+    }
+
+    // Insert into chain: analyser -> pcmProcessor -> destination (required for it to run)
+    this.analyserNode.connect(this.pcmProcessor)
+    this.pcmProcessor.connect(this.audioContext.destination)
+
+    return this.audioContext.sampleRate
+  }
+
+  // Stop PCM capture and disconnect the processor node
+  stopPcmCapture(): void {
+    this.onPcmData = null
+    if (this.pcmProcessor) {
+      this.pcmProcessor.disconnect()
+      this.pcmProcessor = null
+    }
+  }
+
   // Set mic gain (0-200 percentage, where 100 = normal)
   setMicGain(gain: number): void {
     if (this.gainNode) {
@@ -268,6 +315,7 @@ export class SpeechService {
 
   private cleanup(): void {
     this.stopEnergyTracking()
+    this.stopPcmCapture()
     if (this.stream) {
       this.stream.getTracks().forEach(track => track.stop())
       this.stream = null

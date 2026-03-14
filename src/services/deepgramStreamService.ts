@@ -21,6 +21,7 @@ export class DeepgramStreamService {
 
   async start(
     apiKey: string,
+    sampleRate: number,
     onTranscript: TranscriptCallback,
     onError: ErrorCallback
   ): Promise<void> {
@@ -35,6 +36,9 @@ export class DeepgramStreamService {
       punctuate: 'true',
       interim_results: 'true',
       endpointing: '300', // ms of silence before finalizing a segment
+      encoding: 'linear16',
+      sample_rate: String(sampleRate),
+      channels: '1',
     })
 
     return new Promise<void>((resolve, reject) => {

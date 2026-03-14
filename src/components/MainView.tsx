@@ -139,8 +139,14 @@ export default function MainView() {
 
         if (speechProvider === 'deepgram' && settings.apiKeys.deepgram && !isPaid && !rewrite) {
           try {
+            // Get the AudioContext sample rate so Deepgram knows the encoding
+            const sampleRate = speechService.startPcmCapture((buffer) => {
+              deepgramStreamService.sendAudio(buffer)
+            })
+
             await deepgramStreamService.start(
               settings.apiKeys.deepgram,
+              sampleRate,
               (text, _isFinal) => {
                 // Show live transcript in the textarea as words come in
                 setEditedText(text)
@@ -149,18 +155,14 @@ export default function MainView() {
                 console.error('[Prattle] Deepgram stream error:', error)
                 // Stream failed — will fall back to batch on stop
                 isStreamingRef.current = false
-                speechService.setAudioChunkCallback(null)
+                speechService.stopPcmCapture()
               }
             )
-            // Forward audio chunks from MediaRecorder to the WebSocket
-            speechService.setAudioChunkCallback(async (chunk) => {
-              const buffer = await chunk.arrayBuffer()
-              deepgramStreamService.sendAudio(buffer)
-            })
             isStreamingRef.current = true
           } catch (e) {
-            // WebSocket failed to connect — will fall back to batch on stop
+            // WebSocket or PCM capture failed — will fall back to batch on stop
             console.warn('[Prattle] Deepgram streaming failed to start, will use batch:', e)
+            speechService.stopPcmCapture()
             isStreamingRef.current = false
           }
         }
@@ -208,7 +210,7 @@ export default function MainView() {
       // Stop the mic but don't send to API
       const speechProvider = settings.speechProvider
       if (isStreamingRef.current) {
-        speechService.setAudioChunkCallback(null)
+        speechService.stopPcmCapture()
         deepgramStreamService.abort()
         isStreamingRef.current = false
         setEditedText('') // Clear any partial streaming text
@@ -250,7 +252,7 @@ export default function MainView() {
 
       if (isStreamingRef.current) {
         // Deepgram WebSocket streaming — transcript accumulated in real-time
-        speechService.setAudioChunkCallback(null)
+        speechService.stopPcmCapture()
         await speechService.stopRecording() // stop the mic
         transcription = await deepgramStreamService.stop() // flush and get final transcript
         isStreamingRef.current = false
@@ -410,7 +412,7 @@ export default function MainView() {
     } finally {
       // Clean up streaming if it's still active (e.g. after an error)
       if (isStreamingRef.current) {
-        speechService.setAudioChunkCallback(null)
+        speechService.stopPcmCapture()
         deepgramStreamService.abort()
         isStreamingRef.current = false
       }
