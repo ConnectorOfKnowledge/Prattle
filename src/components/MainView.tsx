@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
 import { useAppStore } from '../stores/appStore'
 import { speechService, transcribeWithWhisper, transcribeWithDeepgram, transcribeWithGemini, transcribeWithBrowser, stopBrowserTranscription, isHallucinatedPhrase } from '../services/speechService'
+import { deepgramStreamService } from '../services/deepgramStreamService'
 import { processText, rewriteText, analyzeEdits, buildProcessPrompt, buildRewritePrompt } from '../services/llmService'
 import { transcribeViaProxy, processTextViaProxy } from '../services/proxyService'
 import { DICTATION_MODES } from '../constants/modes'
@@ -31,6 +32,7 @@ export default function MainView() {
   const isProcessingRef = useRef(false) // Guard against duplicate stop calls
   const recordingStartTime = useRef<number>(0) // Timestamp when recording started
   const startPromiseRef = useRef<Promise<void> | null>(null) // Track pending recording start
+  const isStreamingRef = useRef(false) // True when using Deepgram WebSocket streaming
 
   const MIN_RECORDING_MS = 400 // Minimum recording duration before we send to API
 
@@ -130,6 +132,39 @@ export default function MainView() {
         // Apply mic gain setting
         speechService.setMicGain(settings.micGain ?? 100)
 
+        // Set up Deepgram WebSocket streaming (free tier only, not rewrite mode)
+        const userState = useAppStore.getState()
+        const isPaid = userState.user?.subscriptionStatus === 'active'
+        isStreamingRef.current = false
+
+        if (speechProvider === 'deepgram' && settings.apiKeys.deepgram && !isPaid && !rewrite) {
+          try {
+            await deepgramStreamService.start(
+              settings.apiKeys.deepgram,
+              (text, _isFinal) => {
+                // Show live transcript in the textarea as words come in
+                setEditedText(text)
+              },
+              (error) => {
+                console.error('[Prattle] Deepgram stream error:', error)
+                // Stream failed — will fall back to batch on stop
+                isStreamingRef.current = false
+                speechService.setAudioChunkCallback(null)
+              }
+            )
+            // Forward audio chunks from MediaRecorder to the WebSocket
+            speechService.setAudioChunkCallback(async (chunk) => {
+              const buffer = await chunk.arrayBuffer()
+              deepgramStreamService.sendAudio(buffer)
+            })
+            isStreamingRef.current = true
+          } catch (e) {
+            // WebSocket failed to connect — will fall back to batch on stop
+            console.warn('[Prattle] Deepgram streaming failed to start, will use batch:', e)
+            isStreamingRef.current = false
+          }
+        }
+
         recordingStartTime.current = Date.now()
         setRecordingState(rewrite ? 'rewrite_recording' : 'recording')
         setStatusMessage(rewrite ? 'Tell me how to change it...' : 'Listening...')
@@ -172,6 +207,12 @@ export default function MainView() {
     if (elapsed < MIN_RECORDING_MS) {
       // Stop the mic but don't send to API
       const speechProvider = settings.speechProvider
+      if (isStreamingRef.current) {
+        speechService.setAudioChunkCallback(null)
+        deepgramStreamService.abort()
+        isStreamingRef.current = false
+        setEditedText('') // Clear any partial streaming text
+      }
       if (speechProvider === 'browser') {
         stopBrowserTranscription()
         speechService.stopVisualization()
@@ -196,6 +237,9 @@ export default function MainView() {
     setRecordingState('processing')
     setStatusMessage('Transcribing...')
 
+    // Capture whether there's previous committed text (for auto-type spacing)
+    const hadPreviousText = !!useAppStore.getState().lastCommittedText
+
     try {
       let transcription = ''
       const speechProvider = settings.speechProvider
@@ -204,7 +248,13 @@ export default function MainView() {
       const userState = useAppStore.getState()
       const isPaidUser = userState.user?.subscriptionStatus === 'active'
 
-      if (speechProvider === 'browser') {
+      if (isStreamingRef.current) {
+        // Deepgram WebSocket streaming — transcript accumulated in real-time
+        speechService.setAudioChunkCallback(null)
+        await speechService.stopRecording() // stop the mic
+        transcription = await deepgramStreamService.stop() // flush and get final transcript
+        isStreamingRef.current = false
+      } else if (speechProvider === 'browser') {
         stopBrowserTranscription()
         speechService.stopVisualization()
         transcription = browserTranscriptRef.current ? await browserTranscriptRef.current : ''
@@ -346,7 +396,10 @@ export default function MainView() {
         setLastCommittedText(finalText)
 
         if (wasHotkey) {
-          await window.electronAPI.autoTypeText(finalText)
+          // Prepend a space when there was previous text so consecutive
+          // dictations don't smash together in the target app
+          const textToType = hadPreviousText ? ' ' + finalText : finalText
+          await window.electronAPI.autoTypeText(textToType)
         }
 
         setStatusMessage('Ready')
@@ -355,6 +408,12 @@ export default function MainView() {
       console.error('Transcription/processing error:', error)
       setStatusMessage(`Error: ${error.message}`)
     } finally {
+      // Clean up streaming if it's still active (e.g. after an error)
+      if (isStreamingRef.current) {
+        speechService.setAudioChunkCallback(null)
+        deepgramStreamService.abort()
+        isStreamingRef.current = false
+      }
       setRecordingState('idle')
       isProcessingRef.current = false
       // Always hide the floating indicator when processing completes (success or error)

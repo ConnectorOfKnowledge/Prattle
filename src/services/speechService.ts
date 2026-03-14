@@ -55,6 +55,9 @@ export class SpeechService {
   private energySamples: number[] = []
   private energyTrackingInterval: ReturnType<typeof setInterval> | null = null
 
+  // Optional callback for streaming audio chunks to an external service (e.g. Deepgram WS)
+  private onAudioChunk: ((chunk: Blob) => void) | null = null
+
   async startRecording(): Promise<void> {
     try {
       // Use the simplest possible constraint — { audio: true } is the most
@@ -74,6 +77,9 @@ export class SpeechService {
       this.mediaRecorder.ondataavailable = (event) => {
         if (event.data.size > 0) {
           this.audioChunks.push(event.data)
+          if (this.onAudioChunk) {
+            this.onAudioChunk(event.data)
+          }
         }
       }
 
@@ -166,6 +172,11 @@ export class SpeechService {
     } catch (error) {
       console.error('Failed to set up audio analyser:', error)
     }
+  }
+
+  // Set a callback to receive audio chunks in real-time (for streaming to external services)
+  setAudioChunkCallback(callback: ((chunk: Blob) => void) | null): void {
+    this.onAudioChunk = callback
   }
 
   // Set mic gain (0-200 percentage, where 100 = normal)
