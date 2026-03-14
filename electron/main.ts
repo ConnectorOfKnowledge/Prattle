@@ -687,7 +687,7 @@ function initializeDefaultData() {
   if (!fs.existsSync(getDataFilePath('settings.json'))) {
     writeJsonFile('settings.json', {
       speechProvider: 'deepgram',
-      llmProvider: 'gemini',
+      llmProvider: 'claude',
       apiKeys: {},
       currentModeIndex: 0,
       customPrompts: {},
