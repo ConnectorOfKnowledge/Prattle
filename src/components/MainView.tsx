@@ -218,9 +218,6 @@ export default function MainView() {
     setRecordingState('processing')
     setStatusMessage('Transcribing...')
 
-    // Capture whether there's previous committed text (for auto-type spacing)
-    const hadPreviousText = !!useAppStore.getState().lastCommittedText
-
     try {
       let transcription = ''
 
@@ -328,10 +325,8 @@ export default function MainView() {
         setLastCommittedText(finalText)
 
         if (wasHotkey) {
-          // Prepend a space when there was previous text so consecutive
-          // dictations don't smash together in the target app
-          const textToType = hadPreviousText ? ' ' + finalText : finalText
-          await window.electronAPI.autoTypeText(textToType)
+          // Append trailing space so consecutive dictations don't smash together
+          await window.electronAPI.autoTypeText(finalText + ' ')
         }
 
         setStatusMessage('Ready')
@@ -445,7 +440,7 @@ export default function MainView() {
       setStatusMessage('Copied to clipboard!')
     }
 
-    await navigator.clipboard.writeText(editedText)
+    await navigator.clipboard.writeText(editedText + ' ')
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
   }, [editedText, processedText, settings, learnedPatterns])
@@ -456,7 +451,7 @@ export default function MainView() {
     setStatusMessage('Typing to external window...')
 
     try {
-      const success = await window.electronAPI.pasteToExternal(editedText)
+      const success = await window.electronAPI.pasteToExternal(editedText + ' ')
       if (success) {
         setStatusMessage('Typed to external window!')
       } else {
