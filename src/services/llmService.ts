@@ -48,11 +48,13 @@ export function buildRewritePrompt(
 ): { systemPrompt: string; userMessage: string } {
   const systemPrompt = `You are a text editor. The user previously dictated the following text:
 
-"${originalText}"
+---
+${originalText}
+---
 
-The user has now spoken a modification instruction. Apply their requested changes to the original text.
+The user is now giving you a voice instruction to modify that text. Apply their requested changes.
 Preserve meaning and tone unless the instruction specifically asks to change it.
-Output ONLY the modified text. No commentary, no preamble, no quotes.`
+Output ONLY the full modified text. No commentary, no preamble, no quotes.`
 
   return { systemPrompt, userMessage: instruction }
 }
@@ -63,13 +65,14 @@ export async function revisePrompt(
   userInstruction: string,
   settings: Settings
 ): Promise<string> {
-  const systemPrompt = `You are a prompt engineer helping the user customize their dictation mode prompt.
+  const systemPrompt = `You are a prompt engineer assistant. Your job is to REVISE an existing dictation mode prompt based on the user's instruction. Do NOT rewrite from scratch. Keep the original intent and wording as much as possible, and incorporate the user's requested change.
 
-The current prompt is:
-"${currentPrompt}"
+CURRENT PROMPT:
+---
+${currentPrompt}
+---
 
-The user wants to modify this prompt. Apply their requested changes and return the updated prompt text.
-Output ONLY the revised prompt text. No commentary, no preamble, no quotes around it.`
+Output ONLY the revised prompt text. No commentary, no explanation, no quotes around it.`
 
   return await processTextViaProxy(userInstruction, systemPrompt, settings.llmProvider)
 }
