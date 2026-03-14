@@ -52,6 +52,12 @@ export async function transcribeViaProxy(
   const token = await getAccessToken()
   if (!token) throw new Error('Not authenticated')
 
+  // Skip tiny audio blobs that would fail at Deepgram (corrupt/empty webm container)
+  if (audioBlob.size < 3000) {
+    console.log(`[Prattle] Audio blob too small for proxy (${audioBlob.size} bytes), skipping`)
+    return ''
+  }
+
   const base64Audio = await blobToBase64(audioBlob)
 
   const response = await fetchWithTimeout(`${PROXY_BASE}/api/speech/transcribe`, {
@@ -62,7 +68,7 @@ export async function transcribeViaProxy(
     },
     body: JSON.stringify({
       audio: base64Audio,
-      mimeType: audioBlob.type.split(';')[0],
+      mimeType: audioBlob.type || 'audio/webm',
       provider,
     }),
     timeout: 60000,
