@@ -329,14 +329,14 @@ export async function transcribeWithDeepgram(audioBlob: Blob, apiKey: string): P
 
   const arrayBuffer = await audioBlob.arrayBuffer()
 
-  const response = await fetchWithTimeout('https://api.deepgram.com/v1/listen?model=nova-2&language=en&smart_format=true&punctuate=true', {
+  const response = await fetchWithTimeout('https://api.deepgram.com/v1/listen?model=nova-3&language=en&smart_format=true&punctuate=true', {
     method: 'POST',
     headers: {
       'Authorization': `Token ${apiKey}`,
       'Content-Type': audioBlob.type,
     },
     body: arrayBuffer,
-    timeout: 30000,
+    timeout: 15000,
   })
 
   if (!response.ok) {

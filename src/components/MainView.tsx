@@ -32,7 +32,7 @@ export default function MainView() {
   const recordingStartTime = useRef<number>(0) // Timestamp when recording started
   const startPromiseRef = useRef<Promise<void> | null>(null) // Track pending recording start
 
-  const MIN_RECORDING_MS = 750 // Minimum recording duration before we send to API
+  const MIN_RECORDING_MS = 400 // Minimum recording duration before we send to API
 
   const isRecording = recordingState === 'recording' || recordingState === 'rewrite_recording'
   const isProcessing = recordingState === 'processing'
