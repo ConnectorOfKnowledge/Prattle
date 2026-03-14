@@ -28,12 +28,12 @@ export default function MainView() {
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const isHotkeyTriggered = useRef(false)
-  const isProcessingRef = useRef(false) // Guard against duplicate stop calls
-  const recordingStartTime = useRef<number>(0) // Timestamp when recording started
-  const startPromiseRef = useRef<Promise<void> | null>(null) // Track pending recording start
-  const isStreamingRef = useRef(false) // True when using Deepgram WebSocket streaming
+  const isProcessingRef = useRef(false)
+  const recordingStartTime = useRef<number>(0)
+  const startPromiseRef = useRef<Promise<void> | null>(null)
+  const isStreamingRef = useRef(false)
 
-  const MIN_RECORDING_MS = 400 // Minimum recording duration before we send to API
+  const MIN_RECORDING_MS = 400
 
   const isRecording = recordingState === 'recording' || recordingState === 'rewrite_recording'
   const isProcessing = recordingState === 'processing'
@@ -41,12 +41,10 @@ export default function MainView() {
 
   const currentMode = settings ? DICTATION_MODES[settings.currentModeIndex] : DICTATION_MODES[0]
 
-  // Notify main process about committed text state (for rewrite mode detection)
+  // Notify main process about committed text state
   useEffect(() => {
     if (window.electronAPI) {
       const ipcRenderer = (window as any).require?.('electron')?.ipcRenderer
-      // Use a simple approach: send via the existing IPC
-      // The main process listens for 'has-committed-text'
     }
   }, [lastCommittedText])
 
@@ -115,16 +113,11 @@ export default function MainView() {
   const startRecordingInternal = useCallback(async (rewrite: boolean) => {
     if (!settings) return
 
-    // Store the start promise so stopRecording can wait for it
-    // (getUserMedia can take 500ms+, and stop might arrive before it resolves)
     startPromiseRef.current = (async () => {
       try {
         await speechService.startRecording()
-
-        // Apply mic gain setting
         speechService.setMicGain(settings.micGain ?? 100)
 
-        // Set up Deepgram WebSocket streaming (not for rewrite mode)
         isStreamingRef.current = false
 
         if (!rewrite) {
@@ -174,27 +167,24 @@ export default function MainView() {
   const stopRecordingInternal = useCallback(async () => {
     if (!settings) return
 
-    // Wait for any pending recording start to finish before stopping
     if (startPromiseRef.current) {
       try { await startPromiseRef.current } catch {}
       startPromiseRef.current = null
     }
 
-    // Guard: prevent duplicate stop calls
     if (isProcessingRef.current) return
     isProcessingRef.current = true
 
     const currentRecordingState = useAppStore.getState().recordingState
     if (currentRecordingState !== 'recording' && currentRecordingState !== 'rewrite_recording') {
       isProcessingRef.current = false
-      return // Not actually recording -- ignore stale stop
+      return
     }
 
     const wasRewrite = currentRecordingState === 'rewrite_recording'
     const wasHotkey = isHotkeyTriggered.current
     isHotkeyTriggered.current = false
 
-    // Guard: discard recordings shorter than MIN_RECORDING_MS
     const elapsed = Date.now() - recordingStartTime.current
     if (elapsed < MIN_RECORDING_MS) {
       if (isStreamingRef.current) {
@@ -211,7 +201,6 @@ export default function MainView() {
       return
     }
 
-    // Check audio energy before sending to any API
     const audioStats = speechService.getAudioStats()
     const recordingDurationMs = Date.now() - recordingStartTime.current
 
@@ -222,13 +211,11 @@ export default function MainView() {
       let transcription = ''
 
       if (isStreamingRef.current) {
-        // Deepgram WebSocket streaming -- transcript accumulated in real-time
         speechService.stopPcmCapture()
         await speechService.stopRecording()
         transcription = await deepgramStreamService.stop()
         isStreamingRef.current = false
       } else if (!wasHotkey && !audioStats.speechDetected) {
-        // No speech energy detected -- don't waste an API call
         console.log(`[Prattle] No speech detected (peak: ${audioStats.peakEnergy.toFixed(3)}, avg: ${audioStats.avgEnergy.toFixed(3)})`)
         await speechService.stopRecording()
         setStatusMessage('No speech detected. Try speaking louder or check your mic.')
@@ -237,7 +224,6 @@ export default function MainView() {
         if (window.electronAPI) window.electronAPI.hideIndicator?.()
         return
       } else {
-        // Batch transcription via proxy
         const audioBlob = await speechService.stopRecording()
         transcription = await transcribeViaProxy(audioBlob, 'deepgram')
       }
@@ -250,7 +236,6 @@ export default function MainView() {
         return
       }
 
-      // Block known hallucination phrases
       if (isHallucinatedPhrase(transcription)) {
         console.warn(`[Prattle] Blocked hallucinated phrase: "${transcription}"`)
         setStatusMessage('No speech detected. Try again.')
@@ -260,7 +245,6 @@ export default function MainView() {
         return
       }
 
-      // Post-transcription sanity check: detect hallucinated output
       const wordCount = transcription.trim().split(/\s+/).length
       const recordingSeconds = recordingDurationMs / 1000
       const wordsPerSecond = wordCount / recordingSeconds
@@ -285,7 +269,6 @@ export default function MainView() {
       }
 
       if (wasRewrite) {
-        // Rewrite mode: use the transcription as an instruction to modify lastCommittedText
         setStatusMessage('Rewriting...')
         const currentCommitted = useAppStore.getState().lastCommittedText
         const { systemPrompt, userMessage } = buildRewritePrompt(currentCommitted, transcription)
@@ -300,7 +283,6 @@ export default function MainView() {
 
         setStatusMessage('Ready')
       } else {
-        // Normal dictation mode
         setRawText(transcription)
         setStatusMessage('Cleaning your text...')
 
@@ -325,7 +307,6 @@ export default function MainView() {
         setLastCommittedText(finalText)
 
         if (wasHotkey) {
-          // Append trailing space so consecutive dictations don't smash together
           await window.electronAPI.autoTypeText(finalText + ' ')
         }
 
@@ -342,7 +323,6 @@ export default function MainView() {
         setStatusMessage(`Error: ${error.message}`)
       }
     } finally {
-      // Clean up streaming if it's still active (e.g. after an error)
       if (isStreamingRef.current) {
         speechService.stopPcmCapture()
         deepgramStreamService.abort()
@@ -350,18 +330,15 @@ export default function MainView() {
       }
       setRecordingState('idle')
       isProcessingRef.current = false
-      // Always hide the floating indicator when processing completes (success or error)
       if (window.electronAPI) window.electronAPI.hideIndicator?.()
     }
   }, [settings, dictionary, learnedPatterns])
 
-  // Keep refs to the latest callback functions so the IPC listener doesn't need re-registering
   const startRecordingRef = useRef(startRecordingInternal)
   const stopRecordingRef = useRef(stopRecordingInternal)
   useEffect(() => { startRecordingRef.current = startRecordingInternal }, [startRecordingInternal])
   useEffect(() => { stopRecordingRef.current = stopRecordingInternal }, [stopRecordingInternal])
 
-  // Listen for hotkey recording commands from main process -- register ONCE on mount
   useEffect(() => {
     if (!window.electronAPI?.onRecordingCommand) return
 
@@ -383,7 +360,7 @@ export default function MainView() {
     })
 
     return cleanup
-  }, []) // Empty deps -- only register once
+  }, [])
 
   const handleToggleRecording = useCallback(async () => {
     if (!settings) return
@@ -392,7 +369,7 @@ export default function MainView() {
       isHotkeyTriggered.current = false
       await stopRecordingInternal()
     } else if (isProcessing) {
-      return // Don't interrupt processing
+      return
     } else {
       isHotkeyTriggered.current = false
       await startRecordingInternal(false)
@@ -408,7 +385,6 @@ export default function MainView() {
   const handleCopy = useCallback(async () => {
     if (!editedText.trim()) return
 
-    // Analyze edits for pattern learning
     if (processedText && editedText !== processedText && settings && learnedPatterns) {
       try {
         const modeId = DICTATION_MODES[settings.currentModeIndex]?.id || 'clean'
@@ -469,7 +445,6 @@ export default function MainView() {
     setStatusMessage('Ready')
   }, [])
 
-  // Cycle through modes
   const handleCycleMode = useCallback(async () => {
     if (!settings) return
     const nextIndex = (settings.currentModeIndex + 1) % DICTATION_MODES.length
@@ -477,15 +452,6 @@ export default function MainView() {
     await useAppStore.getState().saveSettingsToFile(newSettings)
   }, [settings])
 
-  // Auto-resize textarea
-  useEffect(() => {
-    if (textareaRef.current) {
-      textareaRef.current.style.height = 'auto'
-      textareaRef.current.style.height = `${Math.max(150, textareaRef.current.scrollHeight)}px`
-    }
-  }, [editedText])
-
-  // Mic button color/state
   const getMicButtonClasses = () => {
     if (isProcessing) return 'bg-cd-mic-proc text-white cursor-not-allowed'
     if (isRewriteMode) return 'bg-cd-rewrite text-white scale-110'
@@ -494,145 +460,144 @@ export default function MainView() {
   }
 
   return (
-    <div className="flex flex-col h-full p-6 max-w-2xl mx-auto space-y-4">
-      {/* Mode selector pill */}
-      <div className="flex justify-center">
+    <div className="flex h-full p-4 gap-4">
+      {/* Left panel: controls */}
+      <div className="flex flex-col items-center gap-3 w-44 shrink-0">
+        {/* Mode selector pill */}
         <button
           onClick={handleCycleMode}
           className="px-4 py-1.5 rounded-full text-sm font-medium bg-cd-card text-cd-accent border border-cd-accent/30 hover:border-cd-accent/60 transition-all"
         >
           {currentMode.name}
         </button>
-      </div>
 
-      {/* Status message */}
-      <p className="text-center text-sm text-cd-subtle">
-        {statusMessage}
-      </p>
+        {/* Status message */}
+        <p className="text-center text-xs text-cd-subtle leading-tight min-h-[2rem]">
+          {statusMessage}
+        </p>
 
-      {/* Large mic button */}
-      <div className="flex justify-center">
+        {/* Mic button */}
         <button
           onClick={handleToggleRecording}
           disabled={isProcessing}
-          className={`relative w-24 h-24 rounded-full flex items-center justify-center transition-all duration-300 shadow-lg ${getMicButtonClasses()}`}
+          className={`relative w-20 h-20 rounded-full flex items-center justify-center transition-all duration-300 shadow-lg ${getMicButtonClasses()}`}
         >
           {(isRecording) && (
             <div className={`absolute inset-0 rounded-full ${isRewriteMode ? 'bg-cd-rewrite' : 'bg-cd-mic-rec'} recording-pulse`}></div>
           )}
           {isRecording ? (
-            <HiStop className="w-10 h-10 relative z-10" />
+            <HiStop className="w-8 h-8 relative z-10" />
           ) : isProcessing ? (
-            <div className="w-8 h-8 border-3 border-white border-t-transparent rounded-full animate-spin"></div>
+            <div className="w-7 h-7 border-3 border-white border-t-transparent rounded-full animate-spin"></div>
           ) : (
-            <HiMicrophone className="w-10 h-10 relative z-10" />
+            <HiMicrophone className="w-8 h-8 relative z-10" />
           )}
         </button>
-      </div>
 
-      {/* Rewrite button */}
-      {lastCommittedText && !isRecording && !isProcessing && (
-        <div className="flex justify-center">
+        {/* Recording timer + volume meter */}
+        {isRecording && (
+          <div className="text-center">
+            <span className={`font-medium text-base ${isRewriteMode ? 'text-cd-rewrite' : 'text-cd-mic-rec'}`}>
+              {formatDuration(recordingDuration)}
+            </span>
+            {audioData.length > 0 && (
+              <div className="flex items-end justify-center gap-[2px] h-6 mt-1">
+                {audioData.map((level, i) => (
+                  <div
+                    key={i}
+                    className="w-1 rounded-full"
+                    style={{
+                      height: `${Math.max(2, level * 24)}px`,
+                      backgroundColor: isRewriteMode
+                        ? (level > 0.5 ? '#5856D6' : '#7B7AE0')
+                        : (level > 0.65 ? '#E94560' : level > 0.35 ? '#f59e0b' : '#4ade80'),
+                      transition: 'height 50ms ease-out',
+                    }}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Rewrite button */}
+        {lastCommittedText && !isRecording && !isProcessing && (
           <button
             onClick={handleRewriteStart}
-            className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium bg-cd-rewrite/20 text-cd-rewrite border border-cd-rewrite/30 hover:bg-cd-rewrite/30 transition-all"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium bg-cd-rewrite/20 text-cd-rewrite border border-cd-rewrite/30 hover:bg-cd-rewrite/30 transition-all"
           >
-            <HiArrowPath className="w-4 h-4" />
+            <HiArrowPath className="w-3.5 h-3.5" />
             Rewrite
           </button>
-        </div>
-      )}
+        )}
 
-      {/* Volume meter */}
-      {isRecording && (
-        <div className="text-center">
-          <span className={`font-medium text-lg ${isRewriteMode ? 'text-cd-rewrite' : 'text-cd-mic-rec'}`}>
-            {formatDuration(recordingDuration)}
-          </span>
-          {audioData.length > 0 && (
-            <div className="flex items-end justify-center gap-[2px] h-8 mt-2">
-              {audioData.map((level, i) => (
-                <div
-                  key={i}
-                  className="w-1.5 rounded-full"
-                  style={{
-                    height: `${Math.max(3, level * 32)}px`,
-                    backgroundColor: isRewriteMode
-                      ? (level > 0.5 ? '#5856D6' : '#7B7AE0')
-                      : (level > 0.65 ? '#E94560' : level > 0.35 ? '#f59e0b' : '#4ade80'),
-                    transition: 'height 50ms ease-out',
-                  }}
-                />
-              ))}
-            </div>
-          )}
-        </div>
-      )}
+        {/* Action buttons - stacked vertically */}
+        {editedText && (
+          <div className="flex flex-col gap-2 w-full mt-1">
+            <button
+              onClick={handleCopy}
+              disabled={!editedText}
+              className={`flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium transition-all shadow-sm w-full
+                ${copied
+                  ? 'bg-green-500 text-white'
+                  : 'bg-cd-accent hover:bg-cd-accent/80 text-white hover:shadow-md'
+                }`}
+              title="Copy to clipboard"
+            >
+              {copied ? <HiCheck className="w-3.5 h-3.5" /> : <HiClipboard className="w-3.5 h-3.5" />}
+              {copied ? 'Copied' : 'Copy'}
+            </button>
 
-      {/* Text area */}
-      <div className="bg-cd-card rounded-2xl border border-white/5 p-4">
-        <textarea
-          ref={textareaRef}
-          value={editedText}
-          onChange={(e) => setEditedText(e.target.value)}
-          placeholder={isRecording
-            ? "Recording in progress..."
-            : "Click the microphone to start dictating, or type directly here..."
-          }
-          className="w-full bg-transparent border-none resize-none focus:outline-none focus:ring-0 text-cd-text placeholder-cd-subtle/50 min-h-[150px]"
-          style={{ fontSize: `${settings?.fontSize || 16}px` }}
-        />
+            <button
+              onClick={handleAutoType}
+              disabled={pasting}
+              className="flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium bg-cd-rewrite hover:bg-cd-rewrite/80 text-white transition-all shadow-sm hover:shadow-md disabled:opacity-50 w-full"
+              title="Auto-type to active window"
+            >
+              <HiPaperAirplane className={`w-3.5 h-3.5 ${pasting ? 'animate-pulse' : ''}`} />
+              Auto-Type
+            </button>
+
+            <button
+              onClick={handleClear}
+              className="flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium bg-cd-card hover:bg-white/10 text-cd-subtle transition-all border border-white/10 w-full"
+              title="Clear text"
+            >
+              <HiTrash className="w-3.5 h-3.5" />
+              Clear
+            </button>
+          </div>
+        )}
       </div>
 
-      {/* Action buttons */}
-      {editedText && (
-        <div className="flex items-center justify-center gap-3">
-          <button
-            onClick={handleCopy}
-            disabled={!editedText}
-            className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-medium transition-all shadow-sm
-              ${copied
-                ? 'bg-green-500 text-white'
-                : 'bg-cd-accent hover:bg-cd-accent/80 text-white hover:shadow-md'
-              }`}
-            title="Copy to clipboard"
-          >
-            {copied ? <HiCheck className="w-4 h-4" /> : <HiClipboard className="w-4 h-4" />}
-            {copied ? 'Copied' : 'Copy'}
-          </button>
-
-          <button
-            onClick={handleAutoType}
-            disabled={pasting}
-            className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-medium bg-cd-rewrite hover:bg-cd-rewrite/80 text-white transition-all shadow-sm hover:shadow-md disabled:opacity-50"
-            title="Auto-type to active window"
-          >
-            <HiPaperAirplane className={`w-4 h-4 ${pasting ? 'animate-pulse' : ''}`} />
-            Auto-Type
-          </button>
-
-          <button
-            onClick={handleClear}
-            className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-medium bg-cd-card hover:bg-white/10 text-cd-subtle transition-all border border-white/10"
-            title="Clear text"
-          >
-            <HiTrash className="w-4 h-4" />
-            Clear
-          </button>
+      {/* Right panel: text area (fills remaining space) */}
+      <div className="flex flex-col flex-1 min-w-0 gap-2">
+        <div className="bg-cd-card rounded-2xl border border-white/5 p-3 flex-1 flex flex-col">
+          <textarea
+            ref={textareaRef}
+            value={editedText}
+            onChange={(e) => setEditedText(e.target.value)}
+            placeholder={isRecording
+              ? "Recording in progress..."
+              : "Click the microphone to start dictating, or type directly here..."
+            }
+            className="w-full h-full bg-transparent border-none resize-none focus:outline-none focus:ring-0 text-cd-text placeholder-cd-subtle/50 flex-1"
+            style={{ fontSize: `${settings?.fontSize || 16}px`, minHeight: '100px' }}
+          />
         </div>
-      )}
 
-      {/* Raw text comparison */}
-      {rawText && processedText && rawText !== processedText && (
-        <details className="group">
-          <summary className="text-xs text-cd-subtle cursor-pointer hover:text-cd-text transition-colors">
-            View original transcription
-          </summary>
-          <div className="mt-2 p-3 bg-cd-card rounded-xl text-sm text-cd-subtle">
-            {rawText}
-          </div>
-        </details>
-      )}
+        {/* Raw text comparison */}
+        {rawText && processedText && rawText !== processedText && (
+          <details className="group">
+            <summary className="text-xs text-cd-subtle cursor-pointer hover:text-cd-text transition-colors">
+              View original transcription
+            </summary>
+            <div className="mt-1 p-2 bg-cd-card rounded-xl text-xs text-cd-subtle">
+              {rawText}
+            </div>
+          </details>
+        )}
+      </div>
     </div>
   )
 }

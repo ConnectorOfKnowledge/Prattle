@@ -224,10 +224,10 @@ function modifiersMatch(): boolean {
 
 function createWindow() {
   mainWindow = new BrowserWindow({
-    width: 1000,
-    height: 800,
-    minWidth: 750,
-    minHeight: 600,
+    width: 700,
+    height: 450,
+    minWidth: 500,
+    minHeight: 300,
     title: 'Prattle',
     icon: path.join(__dirname, '../public/icon.png'),
     webPreferences: {
