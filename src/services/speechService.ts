@@ -329,6 +329,10 @@ export async function transcribeWithDeepgram(audioBlob: Blob, apiKey: string): P
 
   const arrayBuffer = await audioBlob.arrayBuffer()
 
+  // Scale timeout with audio size: 15s base + 1s per MB of audio
+  // A 30-min webm/opus recording is roughly 3-5MB, so this gives plenty of headroom
+  const timeoutMs = 15000 + Math.ceil(audioBlob.size / (1024 * 1024)) * 1000
+
   const response = await fetchWithTimeout('https://api.deepgram.com/v1/listen?model=nova-3&language=en&smart_format=true&punctuate=true', {
     method: 'POST',
     headers: {
@@ -336,7 +340,7 @@ export async function transcribeWithDeepgram(audioBlob: Blob, apiKey: string): P
       'Content-Type': audioBlob.type,
     },
     body: arrayBuffer,
-    timeout: 15000,
+    timeout: timeoutMs,
   })
 
   if (!response.ok) {
