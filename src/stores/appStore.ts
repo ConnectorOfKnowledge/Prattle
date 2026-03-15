@@ -124,13 +124,27 @@ export const useAppStore = create<AppState>((set, get) => ({
     const status = await getSubscriptionStatus()
     const currentUser = get().user
     if (currentUser) {
+      // Map SubscriptionResponse fields to UserProfile fields.
+      // The API may return values outside the UserProfile union (e.g. 'free'),
+      // so we map them to the closest equivalent.
+      const planMap: Record<string, UserProfile['plan']> = {
+        monthly: 'monthly',
+        annual: 'annual',
+        free: 'none',
+      }
+      const statusMap: Record<string, UserProfile['subscriptionStatus']> = {
+        active: 'active',
+        canceled: 'canceled',
+        past_due: 'past_due',
+        none: 'none',
+      }
       set({
         user: {
           ...currentUser,
-          subscriptionStatus: status.status as any,
-          plan: status.plan as any,
-          accessType: (status as any).accessType || 'expired',
-          trialEndsAt: (status as any).trialEndsAt,
+          subscriptionStatus: statusMap[status.status] || 'none',
+          plan: planMap[status.plan] || 'none',
+          accessType: status.accessType || 'expired',
+          trialEndsAt: status.trialEndsAt,
           currentPeriodEnd: status.currentPeriodEnd,
           cancelAtPeriodEnd: status.cancelAtPeriodEnd,
         }

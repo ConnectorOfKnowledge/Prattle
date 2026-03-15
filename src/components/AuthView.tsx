@@ -17,7 +17,8 @@ export default function AuthView() {
       await signInWithGoogle()
     } catch (err: any) {
       setError(err.message || 'Failed to start Google sign-in')
-      setLoading(false)
+    } finally {
+      setTimeout(() => setLoading(false), 3000)
     }
   }
 
@@ -41,7 +42,8 @@ export default function AuthView() {
       // Auth state listener in App.tsx handles the rest
     } catch (err: any) {
       setError(err.message || 'Authentication failed')
-      setLoading(false)
+    } finally {
+      setTimeout(() => setLoading(false), 3000)
     }
   }
 

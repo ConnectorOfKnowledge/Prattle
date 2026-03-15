@@ -1,18 +1,8 @@
 import { getAccessToken } from './authService'
 import { fetchWithTimeout } from '../utils/fetchWithTimeout'
+import { blobToBase64 } from '../utils/blobToBase64'
 
 const PROXY_BASE = 'https://voicetype-web.vercel.app'
-
-// Convert Blob to base64 string
-async function blobToBase64(blob: Blob): Promise<string> {
-  const buffer = await blob.arrayBuffer()
-  const bytes = new Uint8Array(buffer)
-  let binary = ''
-  for (let i = 0; i < bytes.length; i++) {
-    binary += String.fromCharCode(bytes[i])
-  }
-  return btoa(binary)
-}
 
 /**
  * Get a Deepgram streaming token from the proxy (authenticated users only)

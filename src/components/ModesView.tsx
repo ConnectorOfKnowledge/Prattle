@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useRef } from 'react'
 import { useAppStore } from '../stores/appStore'
 import { DICTATION_MODES } from '../constants/modes'
 import { revisePrompt } from '../services/llmService'
@@ -10,6 +10,8 @@ export default function ModesView() {
   const [chatInput, setChatInput] = useState('')
   const [isRevising, setIsRevising] = useState(false)
   const [reviseError, setReviseError] = useState<string | null>(null)
+  const [localPrompts, setLocalPrompts] = useState<Record<number, string>>({})
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   if (!settings) return null
 
@@ -21,6 +23,7 @@ export default function ModesView() {
   }
 
   const getPromptForMode = (index: number): string => {
+    if (index in localPrompts) return localPrompts[index]
     return settings.customPrompts?.[index] || DICTATION_MODES[index].description
   }
 
@@ -56,10 +59,19 @@ export default function ModesView() {
     }
   }, [chatInput, isRevising, settings])
 
-  const handleDirectEdit = async (index: number, newPrompt: string) => {
-    const newCustomPrompts = { ...settings.customPrompts, [index]: newPrompt }
-    const newSettings = { ...settings, customPrompts: newCustomPrompts }
-    await saveSettingsToFile(newSettings)
+  const handleDirectEdit = (index: number, newPrompt: string) => {
+    setLocalPrompts(prev => ({ ...prev, [index]: newPrompt }))
+    if (debounceRef.current) clearTimeout(debounceRef.current)
+    debounceRef.current = setTimeout(async () => {
+      const newCustomPrompts = { ...settings.customPrompts, [index]: newPrompt }
+      const newSettings = { ...settings, customPrompts: newCustomPrompts }
+      await saveSettingsToFile(newSettings)
+      setLocalPrompts(prev => {
+        const next = { ...prev }
+        delete next[index]
+        return next
+      })
+    }, 500)
   }
 
   return (

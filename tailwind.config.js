@@ -26,7 +26,7 @@ export default {
           300: '#d5dae1',
           400: '#9aa5b4',
         },
-        // CleanDictate dark theme color namespace
+        // Prattle dark theme color namespace
         cd: {
           bg: '#0D0D1A',
           card: '#1A1A2E',

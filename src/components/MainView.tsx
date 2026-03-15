@@ -79,7 +79,7 @@ export default function MainView() {
   // Notify main process about committed text state
   useEffect(() => {
     if (window.electronAPI) {
-      const ipcRenderer = (window as any).require?.('electron')?.ipcRenderer
+      window.electronAPI.hasCommittedText?.(!!lastCommittedText)
     }
   }, [lastCommittedText])
 
@@ -370,7 +370,7 @@ export default function MainView() {
       isProcessingRef.current = false
       if (window.electronAPI) window.electronAPI.hideIndicator?.()
     }
-  }, [settings, dictionary, learnedPatterns])
+  }, [settings, dictionary, learnedPatterns, trainingMode])
 
   const startRecordingRef = useRef(startRecordingInternal)
   const stopRecordingRef = useRef(stopRecordingInternal)

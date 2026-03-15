@@ -15,7 +15,7 @@ export const DICTATION_MODES = [
   {
     id: 'clean',
     name: 'Clean',
-    description: 'Fix ONLY spelling, grammar, and punctuation. Do NOT change any words the speaker used. Do NOT rephrase, restructure, or swap synonyms. If the speaker said it that way, keep it that way. Your only job is to make it grammatically correct while preserving exactly how they talk.',
+    description: `Fix ONLY spelling, grammar, and punctuation. Preserve the speaker's EXACT word choices -- do not substitute synonyms, rephrase sentences, or "improve" wording in any way. If the speaker said "gonna", keep "gonna". If they said "big" do not change it to "large". If they said "get" do not change it to "obtain". Only fix clear misspellings (e.g. "teh" -> "the"), grammatical errors (e.g. subject-verb agreement), and missing or incorrect punctuation. Never rewrite, restructure, or reword. The output should use the speaker's exact vocabulary and sentence structure, just with correct spelling, grammar, and punctuation.`,
   },
   {
     id: 'professional',
