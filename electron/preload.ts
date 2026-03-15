@@ -29,9 +29,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   writeFile: (filePath: string, content: string) => ipcRenderer.invoke('write-file', filePath, content),
   readFile: (filePath: string) => ipcRenderer.invoke('read-file', filePath),
 
-  // Notify main process whether committed text exists (for rewrite hotkey)
-  hasCommittedText: (hasText: boolean) => ipcRenderer.send('has-committed-text', hasText),
-
   // Hide the indicator overlay window
   hideIndicator: () => ipcRenderer.send('hide-indicator'),
 

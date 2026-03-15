@@ -1,9 +1,10 @@
-import { useState, useMemo } from 'react'
+import { useState, useEffect } from 'react'
 import { useAppStore } from '../stores/appStore'
 import { HiPlus, HiTrash, HiPencil, HiCheck, HiXMark, HiMagnifyingGlass, HiArrowDownTray, HiArrowUpTray } from 'react-icons/hi2'
 
 export default function DictionaryView() {
   const { dictionary, saveDictionaryToFile } = useAppStore()
+  const [entries, setEntries] = useState<[string, string][]>([])
   const [newFrom, setNewFrom] = useState('')
   const [newTo, setNewTo] = useState('')
   const [editingKey, setEditingKey] = useState<string | null>(null)
@@ -12,9 +13,10 @@ export default function DictionaryView() {
   const [search, setSearch] = useState('')
   const [showAddForm, setShowAddForm] = useState(false)
 
-  const entries = useMemo<[string, string][]>(() => {
-    if (!dictionary) return []
-    return Object.entries(dictionary.replacements).sort((a, b) => a[0].localeCompare(b[0]))
+  useEffect(() => {
+    if (dictionary) {
+      setEntries(Object.entries(dictionary.replacements).sort((a, b) => a[0].localeCompare(b[0])))
+    }
   }, [dictionary])
 
   const filteredEntries = entries.filter(([from, to]) =>

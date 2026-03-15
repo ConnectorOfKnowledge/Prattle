@@ -12,22 +12,18 @@ export default function SettingsView() {
   const [updateStatus, setUpdateStatus] = useState<string>('')
   const [updateInfo, setUpdateInfo] = useState<any>(null)
 
-  // Sync local settings state when store settings change
   useEffect(() => {
     if (settings) setLocalSettings({ ...settings })
-  }, [settings])
-
-  // One-time setup: fetch data path, app version, register update listener
-  useEffect(() => {
     window.electronAPI.getUserDataPath().then(setDataPath)
     window.electronAPI.getAppVersion().then(setAppVersion)
 
+    // Listen for update status
     const cleanup = window.electronAPI.onUpdateStatus((status, info) => {
       setUpdateStatus(status)
       if (info) setUpdateInfo(info)
     })
     return cleanup
-  }, [])
+  }, [settings])
 
   if (!localSettings) return null
 
@@ -42,8 +38,6 @@ export default function SettingsView() {
       if (localSettings.hotkey !== settings?.hotkey) {
         await window.electronAPI.updateHotkey(localSettings.hotkey)
       }
-      // Apply start-on-login setting
-      await window.electronAPI.setStartOnLogin(localSettings.startOnLogin !== false)
       setSaved(true)
       setTimeout(() => setSaved(false), 2000)
     }
@@ -153,6 +147,7 @@ export default function SettingsView() {
               checked={localSettings.startOnLogin !== false}
               onChange={(e) => {
                 updateSetting('startOnLogin', e.target.checked)
+                window.electronAPI.setStartOnLogin(e.target.checked)
               }}
               className="sr-only"
             />

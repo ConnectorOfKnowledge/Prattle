@@ -7,20 +7,18 @@ export default function AccountView() {
   const { user, setUser, setCurrentView } = useAppStore()
   const [loading, setLoading] = useState('')
 
-  // TODO: Replace with actual Stripe price IDs when available
-  // const PRICE_MONTHLY = 'price_MONTHLY_TODO'
-  // const PRICE_ANNUAL = 'price_ANNUAL_TODO'
-  const upgradeAvailable = false // flip to true once real price IDs exist
-
   const handleUpgrade = async (plan: 'monthly' | 'annual') => {
-    if (!upgradeAvailable) return
     setLoading(plan)
     try {
-      // const priceId = plan === 'monthly' ? PRICE_MONTHLY : PRICE_ANNUAL
-      // const url = await getCheckoutUrl(priceId)
-      // if (url) {
-      //   await window.electronAPI.openExternalUrl(url)
-      // }
+      // TODO: Replace with actual Stripe price IDs
+      const priceId = plan === 'monthly'
+        ? 'price_MONTHLY_TODO'
+        : 'price_ANNUAL_TODO'
+
+      const url = await getCheckoutUrl(priceId)
+      if (url) {
+        await window.electronAPI.openExternalUrl(url)
+      }
     } catch (err: any) {
       console.error('Checkout error:', err)
     } finally {
@@ -151,46 +149,35 @@ export default function AccountView() {
               Upgrade to get rid of API key management. We handle everything — just speak and type.
             </p>
 
-            {upgradeAvailable ? (
-              <>
-                <div className="grid grid-cols-2 gap-3">
-                  <button
-                    onClick={() => handleUpgrade('monthly')}
-                    disabled={!!loading}
-                    className="flex flex-col items-center gap-1 p-4 rounded-xl border border-white/10 hover:border-cd-accent/50 hover:bg-cd-accent/5 transition-all disabled:opacity-50"
-                  >
-                    <span className="text-lg font-bold text-cd-text">$9.95</span>
-                    <span className="text-xs text-cd-subtle">per month</span>
-                    {loading === 'monthly' && <span className="text-xs text-cd-accent">Opening...</span>}
-                  </button>
+            <div className="grid grid-cols-2 gap-3">
+              <button
+                onClick={() => handleUpgrade('monthly')}
+                disabled={!!loading}
+                className="flex flex-col items-center gap-1 p-4 rounded-xl border border-white/10 hover:border-cd-accent/50 hover:bg-cd-accent/5 transition-all disabled:opacity-50"
+              >
+                <span className="text-lg font-bold text-cd-text">$9.95</span>
+                <span className="text-xs text-cd-subtle">per month</span>
+                {loading === 'monthly' && <span className="text-xs text-cd-accent">Opening...</span>}
+              </button>
 
-                  <button
-                    onClick={() => handleUpgrade('annual')}
-                    disabled={!!loading}
-                    className="flex flex-col items-center gap-1 p-4 rounded-xl border border-cd-accent/50 bg-cd-accent/5 hover:bg-cd-accent/10 transition-all disabled:opacity-50 relative"
-                  >
-                    <div className="absolute -top-2 right-2 px-2 py-0.5 rounded-full bg-cd-accent text-white text-[10px] font-bold">
-                      SAVE 42%
-                    </div>
-                    <span className="text-lg font-bold text-cd-text">$69.95</span>
-                    <span className="text-xs text-cd-subtle">per year</span>
-                    {loading === 'annual' && <span className="text-xs text-cd-accent">Opening...</span>}
-                  </button>
+              <button
+                onClick={() => handleUpgrade('annual')}
+                disabled={!!loading}
+                className="flex flex-col items-center gap-1 p-4 rounded-xl border border-cd-accent/50 bg-cd-accent/5 hover:bg-cd-accent/10 transition-all disabled:opacity-50 relative"
+              >
+                <div className="absolute -top-2 right-2 px-2 py-0.5 rounded-full bg-cd-accent text-white text-[10px] font-bold">
+                  SAVE 42%
                 </div>
+                <span className="text-lg font-bold text-cd-text">$69.95</span>
+                <span className="text-xs text-cd-subtle">per year</span>
+                {loading === 'annual' && <span className="text-xs text-cd-accent">Opening...</span>}
+              </button>
+            </div>
 
-                <p className="text-xs text-cd-subtle text-center">
-                  <HiSparkles className="inline w-3 h-3 mr-1" />
-                  Both plans include unlimited dictation and AI processing
-                </p>
-              </>
-            ) : (
-              <div className="text-center py-3">
-                <p className="text-sm font-medium text-cd-accent">Upgrade coming soon</p>
-                <p className="text-xs text-cd-subtle mt-1">
-                  Paid plans with unlimited dictation are on the way.
-                </p>
-              </div>
-            )}
+            <p className="text-xs text-cd-subtle text-center">
+              <HiSparkles className="inline w-3 h-3 mr-1" />
+              Both plans include unlimited dictation and AI processing
+            </p>
           </div>
         )}
       </div>

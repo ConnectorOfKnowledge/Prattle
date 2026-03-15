@@ -35,8 +35,7 @@ function ensureUserDataDir() {
     fs.mkdirSync(userDataPath, { recursive: true })
   }
   // Migrate legacy voicetype-data to prattle-data
-  const migrationSentinel = path.join(legacyDataPath, '.migrated')
-  if (fs.existsSync(legacyDataPath) && !fs.existsSync(migrationSentinel)) {
+  if (fs.existsSync(legacyDataPath)) {
     try {
       const files = fs.readdirSync(legacyDataPath)
       for (const file of files) {
@@ -46,8 +45,6 @@ function ensureUserDataDir() {
           fs.copyFileSync(src, dest)
         }
       }
-      // Write sentinel so migration doesn't run on every launch
-      fs.writeFileSync(migrationSentinel, new Date().toISOString(), 'utf-8')
       console.log('[Prattle] Migrated data from voicetype-data to prattle-data')
     } catch (e) {
       console.error('[Prattle] Migration error:', e)
@@ -59,7 +56,7 @@ function getDataFilePath(filename: string): string {
   return path.join(userDataPath, filename)
 }
 
-function readJsonFile<T = Record<string, any>>(filename: string, defaultValue: T = {} as T): T {
+function readJsonFile(filename: string, defaultValue: any = {}): any {
   const filePath = getDataFilePath(filename)
   try {
     if (fs.existsSync(filePath)) {
@@ -237,7 +234,6 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      spellcheck: true,
     },
     frame: true,
     backgroundColor: '#0D0D1A',
@@ -249,52 +245,6 @@ function createWindow() {
   } else {
     mainWindow.loadFile(path.join(__dirname, '../dist/index.html'))
   }
-
-  // Spellcheck context menu: show spelling suggestions on right-click
-  mainWindow.webContents.on('context-menu', (_event, params) => {
-    const menuItems: Electron.MenuItemConstructorOptions[] = []
-
-    // Add spelling suggestions if available
-    if (params.misspelledWord && params.dictionarySuggestions.length > 0) {
-      for (const suggestion of params.dictionarySuggestions) {
-        menuItems.push({
-          label: suggestion,
-          click: () => {
-            mainWindow?.webContents.replaceMisspelling(suggestion)
-          },
-        })
-      }
-      menuItems.push({ type: 'separator' })
-
-      // Option to add word to dictionary
-      menuItems.push({
-        label: `Add "${params.misspelledWord}" to dictionary`,
-        click: () => {
-          mainWindow?.webContents.session.addWordToSpellCheckerDictionary(params.misspelledWord)
-        },
-      })
-      menuItems.push({ type: 'separator' })
-    }
-
-    // Standard edit menu items for editable fields
-    if (params.isEditable) {
-      menuItems.push(
-        { label: 'Cut', role: 'cut', enabled: params.editFlags.canCut },
-        { label: 'Copy', role: 'copy', enabled: params.editFlags.canCopy },
-        { label: 'Paste', role: 'paste', enabled: params.editFlags.canPaste },
-        { label: 'Select All', role: 'selectAll', enabled: params.editFlags.canSelectAll },
-      )
-    } else if (params.selectionText) {
-      menuItems.push(
-        { label: 'Copy', role: 'copy', enabled: params.editFlags.canCopy },
-      )
-    }
-
-    if (menuItems.length > 0) {
-      const contextMenu = Menu.buildFromTemplate(menuItems)
-      contextMenu.popup()
-    }
-  })
 
   // Close button hides to tray instead of quitting
   mainWindow.on('close', (event) => {
@@ -400,8 +350,8 @@ function setupHotkeySystem() {
   let keyEventCount = 0
 
   uIOhook.on('keydown', (e) => {
-    // Log first 5 key events to confirm uiohook is receiving input (dev only)
-    if (isDev && keyEventCount < 5) {
+    // Log first 5 key events to confirm uiohook is receiving input
+    if (keyEventCount < 5) {
       keyEventCount++
       console.log(`[Prattle] Key event #${keyEventCount}: keycode=${e.keycode} (trigger=${activeHotkey.triggerKeycode})`)
     }
@@ -484,10 +434,6 @@ function setupHotkeySystem() {
           stopDelayTimeout = null
           if (isHoldRecording && !isHandsFreeMode) {
             isHoldRecording = false
-            // Reset modifier state to avoid stuck keys
-            ctrlDown = false
-            shiftDown = false
-            altDown = false
             stopForegroundTracking()
             sendToRenderer('recording-command', 'stop')
             sendToIndicator('recording-command', 'stop')
@@ -511,10 +457,26 @@ function setupHotkeySystem() {
   }
 }
 
-function rebuildTrayMenu() {
-  if (!tray || tray.isDestroyed()) return
+function createTray() {
+  // Load icon from build directory or use a fallback
+  const iconPath = isDev
+    ? path.join(__dirname, '../build/icon.png')
+    : path.join(process.resourcesPath, 'build', 'icon.png')
 
-  const settings = readJsonFile('settings.json', {} as Record<string, any>)
+  let trayIcon: Electron.NativeImage
+  try {
+    trayIcon = nativeImage.createFromPath(iconPath)
+    // Resize for tray (16x16 on Windows)
+    trayIcon = trayIcon.resize({ width: 16, height: 16 })
+  } catch {
+    // Fallback: create a simple colored square if icon not found
+    trayIcon = nativeImage.createEmpty()
+  }
+
+  tray = new Tray(trayIcon)
+  tray.setToolTip('Prattle — Voice to Text')
+
+  const settings = readJsonFile('settings.json')
   const startOnLogin = settings.startOnLogin !== false // default true
 
   const contextMenu = Menu.buildFromTemplate([
@@ -537,7 +499,7 @@ function rebuildTrayMenu() {
       click: (menuItem) => {
         const enabled = menuItem.checked
         app.setLoginItemSettings({ openAtLogin: enabled })
-        const s = readJsonFile('settings.json', {} as Record<string, any>)
+        const s = readJsonFile('settings.json')
         s.startOnLogin = enabled
         writeJsonFile('settings.json', s)
       }
@@ -560,28 +522,6 @@ function rebuildTrayMenu() {
   ])
 
   tray.setContextMenu(contextMenu)
-}
-
-function createTray() {
-  // Load icon from build directory or use a fallback
-  const iconPath = isDev
-    ? path.join(__dirname, '../build/icon.png')
-    : path.join(process.resourcesPath, 'build', 'icon.png')
-
-  let trayIcon: Electron.NativeImage
-  try {
-    trayIcon = nativeImage.createFromPath(iconPath)
-    // Resize for tray (16x16 on Windows)
-    trayIcon = trayIcon.resize({ width: 16, height: 16 })
-  } catch {
-    // Fallback: create a simple colored square if icon not found
-    trayIcon = nativeImage.createEmpty()
-  }
-
-  tray = new Tray(trayIcon)
-  tray.setToolTip('Prattle — Voice to Text')
-
-  rebuildTrayMenu()
 
   // Double-click tray icon → show window
   tray.on('double-click', () => {
@@ -738,7 +678,6 @@ app.on('before-quit', () => {
 })
 
 app.on('will-quit', () => {
-  if (stopDelayTimeout) clearTimeout(stopDelayTimeout)
   try { uIOhook.stop() } catch (_) {}
 })
 
@@ -826,16 +765,7 @@ function initializeDefaultData() {
 // Settings
 ipcMain.handle('get-settings', () => readJsonFile('settings.json'))
 ipcMain.handle('save-settings', (_, settings) => {
-  // Validate settings shape before writing
-  if (settings == null || typeof settings !== 'object' || Array.isArray(settings)) {
-    console.error('[Prattle] save-settings rejected: not a valid object')
-    return false
-  }
   writeJsonFile('settings.json', settings)
-  // Rebuild tray context menu so "Start on Login" reflects current state
-  if (tray && !tray.isDestroyed()) {
-    rebuildTrayMenu()
-  }
   return true
 })
 
@@ -860,8 +790,6 @@ ipcMain.handle('get-user-data-path', () => userDataPath)
 ipcMain.handle('paste-to-external', async (_, text: string) => {
   if (!mainWindow) return false
 
-  // Save the user's clipboard content before overwriting
-  const previousClipboard = clipboard.readText()
   try {
     // 1. Copy text to clipboard
     clipboard.writeText(text)
@@ -872,28 +800,10 @@ ipcMain.handle('paste-to-external', async (_, text: string) => {
     // 3. Wait for focus to shift (500ms gives the OS time to activate the previous window)
     await new Promise(resolve => setTimeout(resolve, 500))
 
-    // 4. Simulate Ctrl+V using keybd_event (works with Chrome and all apps)
-    const psScript = `
-Add-Type -MemberDefinition '
-  [DllImport("user32.dll")]
-  public static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, UIntPtr dwExtraInfo);
-' -Name U -Namespace W -PassThru | Out-Null
-$KEYDOWN = 0x0000
-$KEYUP = 0x0002
-$VK_CONTROL = 0x11
-$VK_V = 0x56
-[W.U]::keybd_event($VK_CONTROL, 0, $KEYDOWN, [UIntPtr]::Zero)
-Start-Sleep -Milliseconds 30
-[W.U]::keybd_event($VK_V, 0, $KEYDOWN, [UIntPtr]::Zero)
-Start-Sleep -Milliseconds 30
-[W.U]::keybd_event($VK_V, 0, $KEYUP, [UIntPtr]::Zero)
-Start-Sleep -Milliseconds 30
-[W.U]::keybd_event($VK_CONTROL, 0, $KEYUP, [UIntPtr]::Zero)
-`
+    // 4. Simulate Ctrl+V via PowerShell
     await new Promise<void>((resolve, reject) => {
       exec(
-        `powershell -NoProfile -Command "${psScript.replace(/\n/g, ' ')}"`,
-        { timeout: 5000 },
+        'powershell -Command "Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.SendKeys]::SendWait(\'^v\')"',
         (error) => {
           if (error) reject(error)
           else resolve()
@@ -901,17 +811,15 @@ Start-Sleep -Milliseconds 30
       )
     })
 
-    // 5. Brief delay then restore, and restore original clipboard
+    // 5. Brief delay then restore
     await new Promise(resolve => setTimeout(resolve, 400))
-    clipboard.writeText(previousClipboard)
     mainWindow.restore()
     mainWindow.focus()
 
     return true
   } catch (error) {
     console.error('Paste to external failed:', error)
-    // Restore clipboard and window even on failure
-    clipboard.writeText(previousClipboard)
+    // Restore window even on failure
     if (mainWindow) {
       mainWindow.restore()
       mainWindow.focus()
@@ -921,43 +829,21 @@ Start-Sleep -Milliseconds 30
 })
 
 // Auto-type text to active field (from hotkey flow -- does NOT minimize/restore)
-// Uses keybd_event via PowerShell to simulate Ctrl+V at the OS level.
-// SendKeys.SendWait is unreliable with Chrome and other modern apps because it
-// targets the active .NET message loop, not the actual foreground window.
-// keybd_event injects input at the OS level, which works with Chrome, Electron,
-// and virtually all other Windows applications.
 ipcMain.handle('auto-type-text', async (_, text: string) => {
-  // Save the user's clipboard content before overwriting
-  const previousClipboard = clipboard.readText()
   try {
     // 1. Copy text to clipboard
     clipboard.writeText(text)
 
     // 2. Wait for clipboard to settle and OS focus to stabilize
-    await new Promise(resolve => setTimeout(resolve, 200))
+    // 100ms was too short — some apps need longer to be ready for paste
+    await new Promise(resolve => setTimeout(resolve, 250))
 
-    // 3. Simulate Ctrl+V using keybd_event (works with Chrome and all apps)
-    const psScript = `
-Add-Type -MemberDefinition '
-  [DllImport("user32.dll")]
-  public static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, UIntPtr dwExtraInfo);
-' -Name U -Namespace W -PassThru | Out-Null
-$KEYDOWN = 0x0000
-$KEYUP = 0x0002
-$VK_CONTROL = 0x11
-$VK_V = 0x56
-[W.U]::keybd_event($VK_CONTROL, 0, $KEYDOWN, [UIntPtr]::Zero)
-Start-Sleep -Milliseconds 30
-[W.U]::keybd_event($VK_V, 0, $KEYDOWN, [UIntPtr]::Zero)
-Start-Sleep -Milliseconds 30
-[W.U]::keybd_event($VK_V, 0, $KEYUP, [UIntPtr]::Zero)
-Start-Sleep -Milliseconds 30
-[W.U]::keybd_event($VK_CONTROL, 0, $KEYUP, [UIntPtr]::Zero)
-`
+    // 3. Simulate Ctrl+V via PowerShell (Prattle stays in background)
+    // Use a foreground-aware approach: get the current foreground window first,
+    // then send the paste keystroke to it
     await new Promise<void>((resolve, reject) => {
       exec(
-        `powershell -NoProfile -Command "${psScript.replace(/\n/g, ' ')}"`,
-        { timeout: 5000 },
+        'powershell -Command "Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.SendKeys]::SendWait(\'^v\')"',
         (error) => {
           if (error) reject(error)
           else resolve()
@@ -965,16 +851,9 @@ Start-Sleep -Milliseconds 30
       )
     })
 
-    // 4. Restore the user's original clipboard after paste completes
-    setTimeout(() => {
-      clipboard.writeText(previousClipboard)
-    }, 300)
-
     return true
   } catch (error) {
     console.error('Auto-type failed:', error)
-    // Restore clipboard even on failure
-    clipboard.writeText(previousClipboard)
     return false
   }
 })
@@ -1027,18 +906,9 @@ ipcMain.handle('get-app-version', () => {
 
 // Open external URL (for Stripe checkout, portal, etc.)
 ipcMain.handle('open-external-url', (_, url: string) => {
-  try {
-    const parsed = new URL(url)
-    if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
-      console.error(`[Prattle] open-external-url blocked non-http(s) protocol: ${parsed.protocol}`)
-      return false
-    }
-    shell.openExternal(url)
-    return true
-  } catch (e) {
-    console.error('[Prattle] open-external-url invalid URL:', e)
-    return false
-  }
+  const { shell } = require('electron')
+  shell.openExternal(url)
+  return true
 })
 
 // Update hotkey — re-parse the new hotkey string so it takes effect immediately
@@ -1046,9 +916,6 @@ ipcMain.handle('update-hotkey', (_, hotkey: string) => {
   activeHotkey = parseHotkeyString(hotkey)
   // Reset state to avoid stuck keys
   triggerKeyDown = false
-  ctrlDown = false
-  shiftDown = false
-  altDown = false
   isHoldRecording = false
   isHandsFreeMode = false
   console.log(`[Prattle] Hotkey updated to: ${hotkey} (keycode ${activeHotkey.triggerKeycode})`)
@@ -1068,35 +935,11 @@ ipcMain.handle('show-open-dialog', async (_, options) => {
   return result
 })
 
-function isAllowedFilePath(filePath: string): boolean {
-  const resolved = path.resolve(filePath)
-  const downloadsPath = app.getPath('downloads')
-  return resolved.startsWith(userDataPath) || resolved.startsWith(downloadsPath)
-}
-
 ipcMain.handle('write-file', (_, filePath: string, content: string) => {
-  try {
-    if (!isAllowedFilePath(filePath)) {
-      console.error(`[Prattle] write-file blocked: path outside allowed directories: ${filePath}`)
-      return false
-    }
-    fs.writeFileSync(filePath, content, 'utf-8')
-    return true
-  } catch (e) {
-    console.error('[Prattle] write-file error:', e)
-    return false
-  }
+  fs.writeFileSync(filePath, content, 'utf-8')
+  return true
 })
 
 ipcMain.handle('read-file', (_, filePath: string) => {
-  try {
-    if (!isAllowedFilePath(filePath)) {
-      console.error(`[Prattle] read-file blocked: path outside allowed directories: ${filePath}`)
-      return null
-    }
-    return fs.readFileSync(filePath, 'utf-8')
-  } catch (e) {
-    console.error('[Prattle] read-file error:', e)
-    return null
-  }
+  return fs.readFileSync(filePath, 'utf-8')
 })

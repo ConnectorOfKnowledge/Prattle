@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useAppStore } from '../stores/appStore'
 import { HiTrash, HiPencil, HiCheck, HiXMark, HiPlus, HiEye, HiEyeSlash, HiSparkles } from 'react-icons/hi2'
 import { v4 as uuidv4 } from 'uuid'
@@ -7,6 +7,7 @@ import type { LearnedPattern } from '../types'
 
 export default function LearningView() {
   const { learnedPatterns, saveLearnedPatternsToFile } = useAppStore()
+  const [patterns, setPatterns] = useState<LearnedPattern[]>([])
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editDesc, setEditDesc] = useState('')
   const [editRule, setEditRule] = useState('')
@@ -16,7 +17,11 @@ export default function LearningView() {
   const [newPlatform, setNewPlatform] = useState('all')
   const [filter, setFilter] = useState('all')
 
-  const patterns = learnedPatterns?.patterns || []
+  useEffect(() => {
+    if (learnedPatterns) {
+      setPatterns(learnedPatterns.patterns)
+    }
+  }, [learnedPatterns])
 
   const filteredPatterns = patterns.filter(p =>
     filter === 'all' || p.platform === filter || p.platform === 'all'
@@ -70,7 +75,6 @@ export default function LearningView() {
   }
 
   const handleClearAll = async () => {
-    if (!window.confirm('Are you sure you want to clear all learned patterns? This cannot be undone.')) return
     await saveLearnedPatternsToFile({ patterns: [] })
   }
 

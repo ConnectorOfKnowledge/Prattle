@@ -10,11 +10,6 @@ export class DeepgramStreamService {
   private onTranscript: TranscriptCallback | null = null
   private onError: ErrorCallback | null = null
   private closeResolve: (() => void) | null = null
-  private userInitiatedStop = false
-
-  /** True when the WebSocket closed unexpectedly (not from a user-initiated stop).
-   *  The UI can check this to surface a disconnection message. */
-  disconnectedUnexpectedly = false
 
   get transcript(): string {
     return this.finalizedTranscript
@@ -33,8 +28,6 @@ export class DeepgramStreamService {
     this.finalizedTranscript = ''
     this.onTranscript = onTranscript
     this.onError = onError
-    this.userInitiatedStop = false
-    this.disconnectedUnexpectedly = false
 
     const params = new URLSearchParams({
       model: 'nova-3',
@@ -100,14 +93,6 @@ export class DeepgramStreamService {
 
       this.ws.onclose = (event) => {
         console.log(`[Prattle] Deepgram WebSocket closed (code: ${event.code})`)
-
-        // Flag unexpected disconnections so the UI can surface them.
-        // Normal close codes: 1000 (normal), 1001 (going away from CloseStream).
-        if (!this.userInitiatedStop && event.code !== 1000 && event.code !== 1001) {
-          this.disconnectedUnexpectedly = true
-          console.warn(`[Prattle] Deepgram WebSocket disconnected unexpectedly (code: ${event.code})`)
-        }
-
         if (this.closeResolve) {
           this.closeResolve()
           this.closeResolve = null
@@ -123,7 +108,6 @@ export class DeepgramStreamService {
   }
 
   async stop(): Promise<string> {
-    this.userInitiatedStop = true
     if (!this.ws) return this.finalizedTranscript
 
     if (this.ws.readyState === WebSocket.OPEN) {
@@ -149,7 +133,6 @@ export class DeepgramStreamService {
   }
 
   abort(): void {
-    this.userInitiatedStop = true
     if (this.ws) {
       this.ws.close()
       this.ws = null

@@ -80,7 +80,6 @@ declare global {
       showOpenDialog: (options: any) => Promise<any>
       writeFile: (filePath: string, content: string) => Promise<boolean>
       readFile: (filePath: string) => Promise<string>
-      hasCommittedText: (hasText: boolean) => void
       hideIndicator: () => void
       onRecordingCommand: (callback: (command: string, data?: any) => void) => () => void
       // Target window tracking (shows which app will receive text)
