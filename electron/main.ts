@@ -4,7 +4,6 @@ import fs from 'fs'
 import { exec } from 'child_process'
 import { uIOhook, UiohookKey } from 'uiohook-napi'
 import { autoUpdater } from 'electron-updater'
-import koffi from 'koffi'
 
 const isDev = !app.isPackaged
 
@@ -85,63 +84,6 @@ let tray: Tray | null = null
 let isQuitting = false
 let lastForegroundWindow: string = '' // Track foreground window title for text targeting
 
-// ---- Native Ctrl+V simulation via koffi FFI ----
-// Calls Win32 SendInput directly from the Node.js process via koffi.
-// No PowerShell spawning = no focus stealing = works with Chrome.
-// SendInput is the modern API that AutoHotkey uses -- Chrome respects it.
-const user32 = koffi.load('user32.dll')
-
-// Define the KEYBDINPUT struct and INPUT union for SendInput
-const KEYBDINPUT = koffi.struct('KEYBDINPUT', {
-  wVk: 'uint16_t',
-  wScan: 'uint16_t',
-  dwFlags: 'uint32_t',
-  time: 'uint32_t',
-  dwExtraInfo: 'uintptr_t',
-})
-
-const INPUT = koffi.struct('INPUT', {
-  type: 'uint32_t',
-  ki: KEYBDINPUT,
-  padding: koffi.array('uint8_t', 8), // Union padding for MOUSEINPUT/HARDWAREINPUT
-})
-
-const SendInput = user32.func('uint32_t __stdcall SendInput(uint32_t nInputs, INPUT *pInputs, int cbSize)')
-const GetForegroundWindow = user32.func('void* __stdcall GetForegroundWindow()')
-
-const INPUT_KEYBOARD = 1
-const VK_CONTROL = 0x11
-const VK_V = 0x56
-const KEYEVENTF_KEYUP = 0x0002
-
-function makeKeyInput(vk: number, flags: number) {
-  return {
-    type: INPUT_KEYBOARD,
-    ki: { wVk: vk, wScan: 0, dwFlags: flags, time: 0, dwExtraInfo: 0 },
-    padding: [0, 0, 0, 0, 0, 0, 0, 0],
-  }
-}
-
-function simulateCtrlV(): Promise<void> {
-  return new Promise((resolve) => {
-    // Log foreground window for debugging
-    const hwnd = GetForegroundWindow()
-    console.log(`[Prattle] simulateCtrlV: foreground window handle = ${hwnd}`)
-
-    // Send all 4 key events via SendInput (Ctrl down, V down, V up, Ctrl up)
-    const inputs = [
-      makeKeyInput(VK_CONTROL, 0),          // Ctrl down
-      makeKeyInput(VK_V, 0),                // V down
-      makeKeyInput(VK_V, KEYEVENTF_KEYUP),  // V up
-      makeKeyInput(VK_CONTROL, KEYEVENTF_KEYUP), // Ctrl up
-    ]
-
-    const result = SendInput(4, inputs, koffi.sizeof(INPUT))
-    console.log(`[Prattle] SendInput returned: ${result} (expected 4)`)
-    resolve()
-  })
-}
-
 // ---- Hotkey state tracking ----
 let ctrlDown = false
 let shiftDown = false
@@ -163,7 +105,7 @@ function getForegroundWindowTitle(): Promise<string> {
   return new Promise((resolve) => {
     exec(
       'powershell -NoProfile -Command "(Get-Process | Where-Object {$_.MainWindowHandle -eq (Add-Type -MemberDefinition \'[DllImport(\\\"user32.dll\\\")] public static extern IntPtr GetForegroundWindow();\' -Name W -Namespace W -PassThru)::GetForegroundWindow()}).MainWindowTitle"',
-      { timeout: 2000, windowsHide: true },
+      { timeout: 2000 },
       (error, stdout) => {
         if (error) {
           resolve('')
@@ -858,8 +800,16 @@ ipcMain.handle('paste-to-external', async (_, text: string) => {
     // 3. Wait for focus to shift (500ms gives the OS time to activate the previous window)
     await new Promise(resolve => setTimeout(resolve, 500))
 
-    // 4. Simulate Ctrl+V via Win32 keybd_event (hardware-level, works with Chrome)
-    await simulateCtrlV()
+    // 4. Simulate Ctrl+V via PowerShell
+    await new Promise<void>((resolve, reject) => {
+      exec(
+        'powershell -Command "Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.SendKeys]::SendWait(\'^v\')"',
+        (error) => {
+          if (error) reject(error)
+          else resolve()
+        }
+      )
+    })
 
     // 5. Brief delay then restore
     await new Promise(resolve => setTimeout(resolve, 400))
@@ -879,17 +829,27 @@ ipcMain.handle('paste-to-external', async (_, text: string) => {
 })
 
 // Auto-type text to active field (from hotkey flow -- does NOT minimize/restore)
-// Uses Win32 keybd_event for hardware-level key simulation (works with Chrome, Electron apps, etc.)
 ipcMain.handle('auto-type-text', async (_, text: string) => {
   try {
     // 1. Copy text to clipboard
     clipboard.writeText(text)
 
     // 2. Wait for clipboard to settle and OS focus to stabilize
-    await new Promise(resolve => setTimeout(resolve, 200))
+    // 100ms was too short — some apps need longer to be ready for paste
+    await new Promise(resolve => setTimeout(resolve, 250))
 
-    // 3. Simulate Ctrl+V via Win32 keybd_event
-    await simulateCtrlV()
+    // 3. Simulate Ctrl+V via PowerShell (Prattle stays in background)
+    // Use a foreground-aware approach: get the current foreground window first,
+    // then send the paste keystroke to it
+    await new Promise<void>((resolve, reject) => {
+      exec(
+        'powershell -Command "Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.SendKeys]::SendWait(\'^v\')"',
+        (error) => {
+          if (error) reject(error)
+          else resolve()
+        }
+      )
+    })
 
     return true
   } catch (error) {
