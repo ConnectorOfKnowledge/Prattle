@@ -99,7 +99,7 @@ const KEYBD_EVENT_PASTE_SCRIPT = `powershell -NoProfile -Command "` +
 
 function simulateCtrlV(): Promise<void> {
   return new Promise((resolve, reject) => {
-    exec(KEYBD_EVENT_PASTE_SCRIPT, { timeout: 5000 }, (error) => {
+    exec(KEYBD_EVENT_PASTE_SCRIPT, { timeout: 5000, windowsHide: true }, (error) => {
       if (error) reject(error)
       else resolve()
     })
@@ -127,7 +127,7 @@ function getForegroundWindowTitle(): Promise<string> {
   return new Promise((resolve) => {
     exec(
       'powershell -NoProfile -Command "(Get-Process | Where-Object {$_.MainWindowHandle -eq (Add-Type -MemberDefinition \'[DllImport(\\\"user32.dll\\\")] public static extern IntPtr GetForegroundWindow();\' -Name W -Namespace W -PassThru)::GetForegroundWindow()}).MainWindowTitle"',
-      { timeout: 2000 },
+      { timeout: 2000, windowsHide: true },
       (error, stdout) => {
         if (error) {
           resolve('')
