@@ -86,27 +86,59 @@ let isQuitting = false
 let lastForegroundWindow: string = '' // Track foreground window title for text targeting
 
 // ---- Native Ctrl+V simulation via koffi FFI ----
-// Calls Win32 keybd_event directly from the Node.js process via koffi.
+// Calls Win32 SendInput directly from the Node.js process via koffi.
 // No PowerShell spawning = no focus stealing = works with Chrome.
+// SendInput is the modern API that AutoHotkey uses -- Chrome respects it.
 const user32 = koffi.load('user32.dll')
-const keybd_event = user32.func('void __stdcall keybd_event(uint8_t bVk, uint8_t bScan, uint32_t dwFlags, void* dwExtraInfo)')
 
+// Define the KEYBDINPUT struct and INPUT union for SendInput
+const KEYBDINPUT = koffi.struct('KEYBDINPUT', {
+  wVk: 'uint16_t',
+  wScan: 'uint16_t',
+  dwFlags: 'uint32_t',
+  time: 'uint32_t',
+  dwExtraInfo: 'uintptr_t',
+})
+
+const INPUT = koffi.struct('INPUT', {
+  type: 'uint32_t',
+  ki: KEYBDINPUT,
+  padding: koffi.array('uint8_t', 8), // Union padding for MOUSEINPUT/HARDWAREINPUT
+})
+
+const SendInput = user32.func('uint32_t __stdcall SendInput(uint32_t nInputs, INPUT *pInputs, int cbSize)')
+const GetForegroundWindow = user32.func('void* __stdcall GetForegroundWindow()')
+
+const INPUT_KEYBOARD = 1
 const VK_CONTROL = 0x11
 const VK_V = 0x56
 const KEYEVENTF_KEYUP = 0x0002
 
+function makeKeyInput(vk: number, flags: number) {
+  return {
+    type: INPUT_KEYBOARD,
+    ki: { wVk: vk, wScan: 0, dwFlags: flags, time: 0, dwExtraInfo: 0 },
+    padding: [0, 0, 0, 0, 0, 0, 0, 0],
+  }
+}
+
 function simulateCtrlV(): Promise<void> {
   return new Promise((resolve) => {
-    // Ctrl down + V down (synchronous, no focus loss)
-    keybd_event(VK_CONTROL, 0, 0, null)
-    keybd_event(VK_V, 0, 0, null)
+    // Log foreground window for debugging
+    const hwnd = GetForegroundWindow()
+    console.log(`[Prattle] simulateCtrlV: foreground window handle = ${hwnd}`)
 
-    // Brief hold so Chrome's event loop registers the keystroke
-    setTimeout(() => {
-      keybd_event(VK_V, 0, KEYEVENTF_KEYUP, null)
-      keybd_event(VK_CONTROL, 0, KEYEVENTF_KEYUP, null)
-      resolve()
-    }, 50)
+    // Send all 4 key events via SendInput (Ctrl down, V down, V up, Ctrl up)
+    const inputs = [
+      makeKeyInput(VK_CONTROL, 0),          // Ctrl down
+      makeKeyInput(VK_V, 0),                // V down
+      makeKeyInput(VK_V, KEYEVENTF_KEYUP),  // V up
+      makeKeyInput(VK_CONTROL, KEYEVENTF_KEYUP), // Ctrl up
+    ]
+
+    const result = SendInput(4, inputs, koffi.sizeof(INPUT))
+    console.log(`[Prattle] SendInput returned: ${result} (expected 4)`)
+    resolve()
   })
 }
 
