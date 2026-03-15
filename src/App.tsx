@@ -8,7 +8,7 @@ import LearningView from './components/LearningView'
 import AuthView from './components/AuthView'
 import AccountView from './components/AccountView'
 import Header from './components/Header'
-import BugReporter from './components/BugReporter'
+import { TicketDeckWidget } from 'ticketdeck'
 import SubscriptionGate from './components/SubscriptionGate'
 import { getSession, getSubscriptionStatus, onAuthStateChange, exchangeOAuthCode } from './services/authService'
 
@@ -136,7 +136,7 @@ export default function App() {
           {currentView === 'account' && <div className="h-full overflow-y-auto"><AccountView /></div>}
         </main>
       </SubscriptionGate>
-      <BugReporter appVersion={appVersion} currentView={currentView} />
+      <TicketDeckWidget project="Prattle" position="bottom-left" accentColor="#6366f1" theme="auto" />
     </div>
   )
 }
