@@ -103,6 +103,17 @@ export default function SettingsView() {
         </div>
       </div>
 
+      {/* Auto-Paste Notice */}
+      <div className="bg-blue-500/10 rounded-2xl border border-blue-500/20 p-5">
+        <h3 className="font-medium text-blue-400 mb-2">About Auto-Paste</h3>
+        <p className="text-sm text-cd-subtle leading-relaxed">
+          After dictation, Prattle automatically pastes text into the active window.
+          This works in most apps (Notepad, VS Code, Claude Code, etc.), but <strong className="text-cd-text">Chrome web pages</strong> block
+          synthetic keyboard input for security reasons. When using Chrome, your text is still
+          copied to the clipboard -- just click in the text field and press <strong className="text-cd-text">Ctrl+V</strong> to paste.
+        </p>
+      </div>
+
       {/* Global Hotkey */}
       <div className="bg-cd-card rounded-2xl border border-white/5 p-5">
         <h3 className="font-medium text-cd-text mb-3">Global Hotkey</h3>
@@ -153,6 +164,28 @@ export default function SettingsView() {
             />
             <div className={`w-11 h-6 rounded-full transition-colors ${localSettings.startOnLogin !== false ? 'bg-cd-accent' : 'bg-gray-600'}`}>
               <div className={`w-5 h-5 rounded-full bg-white shadow transform transition-transform mt-0.5 ${localSettings.startOnLogin !== false ? 'translate-x-5.5 ml-[22px]' : 'translate-x-0.5 ml-[2px]'}`}></div>
+            </div>
+          </div>
+        </label>
+      </div>
+
+      {/* Training Mode */}
+      <div className="bg-cd-card rounded-2xl border border-white/5 p-5">
+        <h3 className="font-medium text-cd-text mb-3">Training</h3>
+        <label className="flex items-center justify-between cursor-pointer">
+          <div>
+            <div className="text-sm font-medium text-cd-text">Enable training mode</div>
+            <div className="text-xs text-cd-subtle">Shows the Train toggle on the dictation screen and the Learning tab in navigation. Use this to teach Prattle your writing preferences.</div>
+          </div>
+          <div className="relative">
+            <input
+              type="checkbox"
+              checked={localSettings.trainingEnabled === true}
+              onChange={(e) => updateSetting('trainingEnabled', e.target.checked)}
+              className="sr-only"
+            />
+            <div className={`w-11 h-6 rounded-full transition-colors ${localSettings.trainingEnabled ? 'bg-amber-500' : 'bg-gray-600'}`}>
+              <div className={`w-5 h-5 rounded-full bg-white shadow transform transition-transform mt-0.5 ${localSettings.trainingEnabled ? 'translate-x-5.5 ml-[22px]' : 'translate-x-0.5 ml-[2px]'}`}></div>
             </div>
           </div>
         </label>

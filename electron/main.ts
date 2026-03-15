@@ -1,11 +1,17 @@
 import { app, BrowserWindow, ipcMain, dialog, clipboard, screen, Tray, Menu, nativeImage, shell } from 'electron'
 import path from 'path'
 import fs from 'fs'
-import { exec } from 'child_process'
+import { exec, execFile } from 'child_process'
 import { uIOhook, UiohookKey } from 'uiohook-napi'
 import { autoUpdater } from 'electron-updater'
 
 const isDev = !app.isPackaged
+
+// Path to the pre-compiled C++ helper that simulates Ctrl+V via Win32 SendInput
+// with hardware scan codes. This works in Chrome (unlike PowerShell/keybd_event).
+const pasteHelperPath = isDev
+  ? path.join(__dirname, '../../resources/paste_helper.exe')
+  : path.join(process.resourcesPath, 'paste_helper.exe')
 
 // Set the app name so Task Manager shows "Prattle" instead of "Electron"
 app.setName('Prattle')
@@ -696,6 +702,7 @@ function initializeDefaultData() {
       micGain: 100,
       hotkey: 'RightAlt',
       startOnLogin: true,
+      trainingEnabled: false,
     })
   } else {
     // Migrate existing settings to new format
@@ -735,6 +742,10 @@ function initializeDefaultData() {
     }
     if (settings.micGain === undefined) {
       settings.micGain = 100
+      changed = true
+    }
+    if (settings.trainingEnabled === undefined) {
+      settings.trainingEnabled = false
       changed = true
     }
     if (settings.startOnLogin === undefined) {
@@ -791,8 +802,9 @@ ipcMain.handle('paste-to-external', async (_, text: string) => {
   if (!mainWindow) return false
 
   try {
-    // 1. Copy text to clipboard
+    // 1. Copy text to clipboard and force sync
     clipboard.writeText(text)
+    clipboard.readText() // forces clipboard propagation to complete
 
     // 2. Minimize Prattle so previous window regains focus
     mainWindow.minimize()
@@ -800,15 +812,12 @@ ipcMain.handle('paste-to-external', async (_, text: string) => {
     // 3. Wait for focus to shift (500ms gives the OS time to activate the previous window)
     await new Promise(resolve => setTimeout(resolve, 500))
 
-    // 4. Simulate Ctrl+V via PowerShell
+    // 4. Simulate Ctrl+V via native helper (works in Chrome and all apps)
     await new Promise<void>((resolve, reject) => {
-      exec(
-        'powershell -Command "Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.SendKeys]::SendWait(\'^v\')"',
-        (error) => {
-          if (error) reject(error)
-          else resolve()
-        }
-      )
+      execFile(pasteHelperPath, (error) => {
+        if (error) reject(error)
+        else resolve()
+      })
     })
 
     // 5. Brief delay then restore
@@ -829,26 +838,25 @@ ipcMain.handle('paste-to-external', async (_, text: string) => {
 })
 
 // Auto-type text to active field (from hotkey flow -- does NOT minimize/restore)
+// Uses a pre-compiled C++ helper (.exe) that calls Win32 SendInput with hardware
+// scan codes (KEYEVENTF_SCANCODE). This is the only approach that works in Chrome,
+// because Chrome ignores keybd_event and rejects SendInput from Electron/PowerShell
+// processes due to struct misalignment and focus-stealing issues.
 ipcMain.handle('auto-type-text', async (_, text: string) => {
   try {
-    // 1. Copy text to clipboard
+    // 1. Copy text to clipboard and force sync (ChatGPT recommendation)
     clipboard.writeText(text)
+    clipboard.readText() // forces clipboard propagation to complete
 
-    // 2. Wait for clipboard to settle and OS focus to stabilize
-    // 100ms was too short — some apps need longer to be ready for paste
-    await new Promise(resolve => setTimeout(resolve, 250))
+    // 2. Brief delay for clipboard to settle
+    await new Promise(resolve => setTimeout(resolve, 50))
 
-    // 3. Simulate Ctrl+V via PowerShell (Prattle stays in background)
-    // Use a foreground-aware approach: get the current foreground window first,
-    // then send the paste keystroke to it
+    // 3. Call the native paste helper -- it handles its own 50ms focus delay
     await new Promise<void>((resolve, reject) => {
-      exec(
-        'powershell -Command "Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.SendKeys]::SendWait(\'^v\')"',
-        (error) => {
-          if (error) reject(error)
-          else resolve()
-        }
-      )
+      execFile(pasteHelperPath, (error) => {
+        if (error) reject(error)
+        else resolve()
+      })
     })
 
     return true

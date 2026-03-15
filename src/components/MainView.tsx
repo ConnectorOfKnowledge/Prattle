@@ -182,7 +182,7 @@ export default function MainView() {
               await speechService.stopRecording()
               return
             }
-            console.warn('[Prattle] Streaming failed, will use batch:', e)
+            console.warn('[Prattle] Streaming failed, will use batch:', e?.message || e)
             speechService.stopPcmCapture()
             isStreamingRef.current = false
           }
@@ -238,6 +238,8 @@ export default function MainView() {
 
     const audioStats = speechService.getAudioStats()
     const recordingDurationMs = Date.now() - recordingStartTime.current
+
+    console.log(`[Prattle] Stop recording — streaming: ${isStreamingRef.current}, hotkey: ${wasHotkey}, duration: ${recordingDurationMs}ms, peak: ${audioStats.peakEnergy.toFixed(3)}, avg: ${audioStats.avgEnergy.toFixed(3)}, speechDetected: ${audioStats.speechDetected}`)
 
     setRecordingState('processing')
     setStatusMessage('Transcribing...')
@@ -634,8 +636,8 @@ export default function MainView() {
           </div>
         )}
 
-        {/* Training mode toggle */}
-        {!isRecording && !isProcessing && (
+        {/* Training mode toggle -- only visible when training is enabled in Settings */}
+        {settings?.trainingEnabled && !isRecording && !isProcessing && (
           <button
             onClick={() => { setTrainingMode(!trainingMode); setTrainingSaved(false) }}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium transition-all ${

@@ -16,6 +16,7 @@ export interface Settings {
   theme: 'light' | 'dark'
   hotkey: string
   startOnLogin: boolean
+  trainingEnabled: boolean  // When off, hides training toggle + Learning tab
 }
 
 export interface UserProfile {

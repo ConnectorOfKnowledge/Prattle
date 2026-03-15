@@ -14,7 +14,7 @@ export default defineConfig({
           build: {
             outDir: 'dist-electron',
             rollupOptions: {
-              external: ['electron', 'path', 'fs', 'os', 'crypto', 'uiohook-napi', 'electron-updater']
+              external: ['electron', 'path', 'fs', 'os', 'crypto', 'child_process', 'uiohook-napi', 'electron-updater']
             }
           }
         }
