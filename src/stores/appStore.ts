@@ -19,7 +19,7 @@ interface AppState {
   processedText: string
   editedText: string
   lastCommittedText: string
-  currentView: 'main' | 'settings' | 'dictionary' | 'modes' | 'account' | 'auth'
+  currentView: 'main' | 'settings' | 'dictionary' | 'modes' | 'learning' | 'account' | 'auth'
   statusMessage: string
   recordingDuration: number
 

@@ -4,6 +4,7 @@ import MainView from './components/MainView'
 import SettingsView from './components/SettingsView'
 import DictionaryView from './components/DictionaryView'
 import ModesView from './components/ModesView'
+import LearningView from './components/LearningView'
 import AuthView from './components/AuthView'
 import AccountView from './components/AccountView'
 import Header from './components/Header'
@@ -131,6 +132,7 @@ export default function App() {
           {currentView === 'modes' && <div className="h-full overflow-y-auto"><ModesView /></div>}
           {currentView === 'settings' && <div className="h-full overflow-y-auto"><SettingsView /></div>}
           {currentView === 'dictionary' && <div className="h-full overflow-y-auto"><DictionaryView /></div>}
+          {currentView === 'learning' && <div className="h-full overflow-y-auto"><LearningView /></div>}
           {currentView === 'account' && <div className="h-full overflow-y-auto"><AccountView /></div>}
         </main>
       </SubscriptionGate>

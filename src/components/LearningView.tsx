@@ -189,15 +189,72 @@ export default function LearningView() {
         </div>
       )}
 
-      {/* Auto-learned patterns */}
-      {autoPatterns.length > 0 && (
+      {/* Training Records (patterns with before/after context) */}
+      {autoPatterns.filter(p => p.originalText).length > 0 && (
         <div className="card">
           <h3 className="text-sm font-medium text-cd-text mb-3 flex items-center gap-1.5">
             <HiSparkles className="w-4 h-4 text-amber-500" />
-            Auto-Learned ({autoPatterns.length})
+            Training Records ({autoPatterns.filter(p => p.originalText).length})
+          </h3>
+          <div className="divide-y divide-white/5">
+            {autoPatterns.filter(p => p.originalText).map(pattern => (
+              <div key={pattern.id} className={`py-3 group ${!pattern.active ? 'opacity-50' : ''}`}>
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-1.5">
+                      <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
+                        pattern.action === 'dictionary_add'
+                          ? 'bg-blue-500/20 text-blue-400'
+                          : 'bg-amber-500/20 text-amber-400'
+                      }`}>
+                        {pattern.action === 'dictionary_add' ? 'Dictionary' : 'Prompt Rule'}
+                      </span>
+                      <span className="text-[10px] bg-white/5 text-cd-subtle px-1.5 py-0.5 rounded">
+                        {getModeName(pattern.platform)}
+                      </span>
+                      <span className="text-[10px] text-cd-subtle">
+                        {new Date(pattern.createdAt).toLocaleDateString()}
+                      </span>
+                    </div>
+                    <div className="text-sm font-medium text-cd-text">{pattern.description}</div>
+                    <div className="text-xs text-cd-subtle mt-0.5 mb-2">{pattern.rule}</div>
+                    {pattern.originalText && (
+                      <div className="space-y-1">
+                        <div className="text-xs">
+                          <span className="text-red-400/70 font-medium">AI gave: </span>
+                          <span className="text-cd-subtle">{pattern.originalText.length > 120 ? pattern.originalText.slice(0, 120) + '...' : pattern.originalText}</span>
+                        </div>
+                        <div className="text-xs">
+                          <span className="text-green-400/70 font-medium">You wanted: </span>
+                          <span className="text-cd-subtle">{pattern.correctedText && pattern.correctedText.length > 120 ? pattern.correctedText.slice(0, 120) + '...' : pattern.correctedText}</span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                  <div className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1 shrink-0">
+                    <button onClick={() => handleToggleActive(pattern.id)} className="btn-icon" title={pattern.active ? 'Disable' : 'Enable'}>
+                      {pattern.active ? <HiEye className="w-3.5 h-3.5" /> : <HiEyeSlash className="w-3.5 h-3.5" />}
+                    </button>
+                    <button onClick={() => handleDelete(pattern.id)} className="btn-icon text-red-400 hover:text-red-500">
+                      <HiTrash className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Auto-learned patterns (without training context - legacy) */}
+      {autoPatterns.filter(p => !p.originalText).length > 0 && (
+        <div className="card">
+          <h3 className="text-sm font-medium text-cd-text mb-3 flex items-center gap-1.5">
+            <HiSparkles className="w-4 h-4 text-amber-500" />
+            Auto-Learned ({autoPatterns.filter(p => !p.originalText).length})
           </h3>
           <PatternList
-            patterns={autoPatterns}
+            patterns={autoPatterns.filter(p => !p.originalText)}
             editingId={editingId}
             editDesc={editDesc}
             editRule={editRule}

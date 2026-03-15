@@ -41,6 +41,10 @@ export interface LearnedPattern {
   createdAt: string
   source: 'auto' | 'manual'
   active: boolean
+  // Training context (optional, added v1.7.0)
+  originalText?: string
+  correctedText?: string
+  action?: 'prompt_rule' | 'dictionary_add'
 }
 
 export interface LearnedPatterns {

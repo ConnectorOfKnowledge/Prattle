@@ -12,6 +12,39 @@ import {
 } from 'react-icons/hi2'
 import { v4 as uuidv4 } from 'uuid'
 
+// Find simple word-level swaps between two texts
+function findWordSwaps(original: string, corrected: string): { from: string; to: string }[] {
+  const origWords = original.split(/\s+/)
+  const corrWords = corrected.split(/\s+/)
+  const swaps: { from: string; to: string }[] = []
+
+  // Only detect swaps in texts of similar length (not major rewrites)
+  if (Math.abs(origWords.length - corrWords.length) > 2) return swaps
+
+  const minLen = Math.min(origWords.length, corrWords.length)
+  for (let i = 0; i < minLen; i++) {
+    const ow = origWords[i].replace(/[.,!?;:'"]/g, '')
+    const cw = corrWords[i].replace(/[.,!?;:'"]/g, '')
+    if (ow.toLowerCase() !== cw.toLowerCase() && ow.length > 1 && cw.length > 1) {
+      swaps.push({ from: ow, to: cw })
+    }
+  }
+  return swaps
+}
+
+// Count how many times a specific word swap appears in existing patterns
+function countWordSwapInPatterns(patterns: any[], from: string, to: string): number {
+  let count = 0
+  for (const p of patterns) {
+    if (!p.originalText || !p.correctedText) continue
+    const swaps = findWordSwaps(p.originalText, p.correctedText)
+    if (swaps.some(s => s.from.toLowerCase() === from.toLowerCase() && s.to.toLowerCase() === to.toLowerCase())) {
+      count++
+    }
+  }
+  return count
+}
+
 export default function MainView() {
   const {
     settings, dictionary, learnedPatterns,
@@ -452,7 +485,7 @@ export default function MainView() {
   }, [])
 
   const handleTrainingSave = useCallback(async () => {
-    if (!processedText || !editedText || !settings || !learnedPatterns) return
+    if (!processedText || !editedText || !settings || !learnedPatterns || !dictionary) return
 
     // If user didn't change anything, tell them
     if (processedText.trim() === editedText.trim()) {
@@ -465,6 +498,7 @@ export default function MainView() {
     try {
       const modeId = DICTATION_MODES[settings.currentModeIndex]?.id || 'clean'
       const pattern = await analyzeEdits(processedText, editedText, modeId, settings)
+      const messages: string[] = []
 
       if (pattern) {
         const newPattern = {
@@ -475,21 +509,55 @@ export default function MainView() {
           createdAt: new Date().toISOString(),
           source: 'auto' as const,
           active: true,
+          originalText: processedText.trim(),
+          correctedText: editedText.trim(),
+          action: 'prompt_rule' as const,
         }
 
-        const updated = {
-          patterns: [...learnedPatterns.patterns, newPattern]
+        const updatedPatterns = [...learnedPatterns.patterns, newPattern]
+        await saveLearnedPatternsToFile({ patterns: updatedPatterns })
+        messages.push(`Learned: "${pattern.description}"`)
+
+        // Auto-dictionary: find simple word swaps that have been corrected 3+ times
+        const wordSwaps = findWordSwaps(processedText.trim(), editedText.trim())
+        for (const swap of wordSwaps) {
+          const swapCount = countWordSwapInPatterns(updatedPatterns, swap.from, swap.to)
+          if (swapCount >= 3 && !dictionary.replacements[swap.from.toLowerCase()]) {
+            // Auto-add to dictionary
+            const updatedDict = {
+              replacements: {
+                ...dictionary.replacements,
+                [swap.from.toLowerCase()]: swap.to,
+              }
+            }
+            await saveDictionaryToFile(updatedDict)
+
+            // Also log as a dictionary pattern
+            const dictPattern = {
+              id: uuidv4(),
+              description: `Auto-added to dictionary: "${swap.from}" -> "${swap.to}"`,
+              rule: `Always replace "${swap.from}" with "${swap.to}"`,
+              platform: 'all',
+              createdAt: new Date().toISOString(),
+              source: 'auto' as const,
+              active: true,
+              action: 'dictionary_add' as const,
+            }
+            updatedPatterns.push(dictPattern)
+            await saveLearnedPatternsToFile({ patterns: updatedPatterns })
+            messages.push(`Added "${swap.from}" -> "${swap.to}" to dictionary (corrected 3+ times)`)
+          }
         }
-        await saveLearnedPatternsToFile(updated)
-        setTrainingSaved(true)
-        setStatusMessage(`Learned: "${pattern.description}"`)
       } else {
-        setStatusMessage('Changes were too minor to extract a pattern. Try a more specific correction.')
+        messages.push('Changes were too minor to extract a pattern. Try a more specific correction.')
       }
+
+      setTrainingSaved(messages.length > 0 && !messages[0].includes('too minor'))
+      setStatusMessage(messages.join(' | '))
     } catch (error: any) {
       setStatusMessage(`Training error: ${error.message}`)
     }
-  }, [processedText, editedText, settings, learnedPatterns])
+  }, [processedText, editedText, settings, learnedPatterns, dictionary])
 
   const handleCycleMode = useCallback(async () => {
     if (!settings) return
