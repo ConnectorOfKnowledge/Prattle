@@ -4,6 +4,7 @@ import fs from 'fs'
 import { exec } from 'child_process'
 import { uIOhook, UiohookKey } from 'uiohook-napi'
 import { autoUpdater } from 'electron-updater'
+import koffi from 'koffi'
 
 const isDev = !app.isPackaged
 
@@ -84,25 +85,28 @@ let tray: Tray | null = null
 let isQuitting = false
 let lastForegroundWindow: string = '' // Track foreground window title for text targeting
 
-// ---- Hardware-level Ctrl+V simulation ----
-// Uses Win32 keybd_event for reliable paste into all apps (including Chrome, VS Code, etc.)
-// SendKeys.SendWait uses the Windows message queue, which sandboxed apps like Chrome ignore.
-// keybd_event simulates hardware-level key events that all apps accept.
-// VK_CONTROL=0x11, VK_V=0x56, KEYEVENTF_KEYUP=0x0002
-const KEYBD_EVENT_PASTE_SCRIPT = `powershell -NoProfile -Command "` +
-  `Add-Type -MemberDefinition '[DllImport(\\\"user32.dll\\\")] public static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, UIntPtr dwExtraInfo);' -Name KE -Namespace W32; ` +
-  `[W32.KE]::keybd_event(0x11, 0, 0, [UIntPtr]::Zero); ` +          // Ctrl down
-  `[W32.KE]::keybd_event(0x56, 0, 0, [UIntPtr]::Zero); ` +          // V down
-  `Start-Sleep -Milliseconds 50; ` +                                  // Brief hold
-  `[W32.KE]::keybd_event(0x56, 0, 0x0002, [UIntPtr]::Zero); ` +     // V up
-  `[W32.KE]::keybd_event(0x11, 0, 0x0002, [UIntPtr]::Zero)"`         // Ctrl up
+// ---- Native Ctrl+V simulation via koffi FFI ----
+// Calls Win32 keybd_event directly from the Node.js process via koffi.
+// No PowerShell spawning = no focus stealing = works with Chrome.
+const user32 = koffi.load('user32.dll')
+const keybd_event = user32.func('void __stdcall keybd_event(uint8_t bVk, uint8_t bScan, uint32_t dwFlags, void* dwExtraInfo)')
+
+const VK_CONTROL = 0x11
+const VK_V = 0x56
+const KEYEVENTF_KEYUP = 0x0002
 
 function simulateCtrlV(): Promise<void> {
-  return new Promise((resolve, reject) => {
-    exec(KEYBD_EVENT_PASTE_SCRIPT, { timeout: 5000, windowsHide: true }, (error) => {
-      if (error) reject(error)
-      else resolve()
-    })
+  return new Promise((resolve) => {
+    // Ctrl down + V down (synchronous, no focus loss)
+    keybd_event(VK_CONTROL, 0, 0, null)
+    keybd_event(VK_V, 0, 0, null)
+
+    // Brief hold so Chrome's event loop registers the keystroke
+    setTimeout(() => {
+      keybd_event(VK_V, 0, KEYEVENTF_KEYUP, null)
+      keybd_event(VK_CONTROL, 0, KEYEVENTF_KEYUP, null)
+      resolve()
+    }, 50)
   })
 }
 
