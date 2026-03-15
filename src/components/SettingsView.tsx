@@ -209,7 +209,7 @@ export default function SettingsView() {
           <p className="text-xs text-green-400">Update downloaded! Restart Prattle to install.</p>
         )}
         {updateStatus === 'error' && (
-          <p className="text-xs text-red-400">Update check failed. Try again later.</p>
+          <p className="text-xs text-red-400">Update check failed: {updateInfo || 'Unknown error'}</p>
         )}
       </div>
 
