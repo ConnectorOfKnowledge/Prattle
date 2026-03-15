@@ -32,6 +32,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Hide the indicator overlay window
   hideIndicator: () => ipcRenderer.send('hide-indicator'),
 
+  // Notify main process about committed text state (for rewrite mode detection)
+  hasCommittedText: (hasText: boolean) => ipcRenderer.send('has-committed-text', hasText),
+
   // Target window listener (foreground window tracking during recording)
   onTargetWindow: (callback: (title: string) => void) => {
     const handler = (_event: any, title: string) => callback(title)

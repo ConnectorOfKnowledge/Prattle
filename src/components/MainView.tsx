@@ -79,7 +79,7 @@ export default function MainView() {
   // Notify main process about committed text state
   useEffect(() => {
     if (window.electronAPI) {
-      const ipcRenderer = (window as any).require?.('electron')?.ipcRenderer
+      window.electronAPI.hasCommittedText(!!lastCommittedText)
     }
   }, [lastCommittedText])
 
