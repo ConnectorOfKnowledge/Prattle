@@ -25,6 +25,8 @@ export default function MainView() {
   const [copied, setCopied] = useState(false)
   const [pasting, setPasting] = useState(false)
   const [audioData, setAudioData] = useState<number[]>([])
+  const [trainingMode, setTrainingMode] = useState(false)
+  const [trainingSaved, setTrainingSaved] = useState(false)
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const isHotkeyTriggered = useRef(false)
@@ -275,6 +277,7 @@ export default function MainView() {
         const rewritten = await processTextViaProxy(userMessage, systemPrompt, settings.llmProvider)
 
         setProcessedText(rewritten)
+        setEditedText(rewritten)
         setLastCommittedText(rewritten)
 
         if (wasHotkey) {
@@ -304,13 +307,15 @@ export default function MainView() {
         }
 
         setProcessedText(finalText)
+        setEditedText(finalText)
         setLastCommittedText(finalText)
+        setTrainingSaved(false)
 
         if (wasHotkey) {
           await window.electronAPI.autoTypeText(finalText + ' ')
         }
 
-        setStatusMessage('Ready')
+        setStatusMessage(trainingMode ? 'Edit the text above, then hit Save Training' : 'Ready')
       }
     } catch (error: any) {
       console.error('Transcription/processing error:', error)
@@ -442,8 +447,49 @@ export default function MainView() {
 
   const handleClear = useCallback(() => {
     clearText()
+    setTrainingSaved(false)
     setStatusMessage('Ready')
   }, [])
+
+  const handleTrainingSave = useCallback(async () => {
+    if (!processedText || !editedText || !settings || !learnedPatterns) return
+
+    // If user didn't change anything, tell them
+    if (processedText.trim() === editedText.trim()) {
+      setStatusMessage('No changes detected. Edit the text first, then save.')
+      return
+    }
+
+    setStatusMessage('Analyzing your corrections...')
+
+    try {
+      const modeId = DICTATION_MODES[settings.currentModeIndex]?.id || 'clean'
+      const pattern = await analyzeEdits(processedText, editedText, modeId, settings)
+
+      if (pattern) {
+        const newPattern = {
+          id: uuidv4(),
+          description: pattern.description,
+          rule: pattern.rule,
+          platform: modeId,
+          createdAt: new Date().toISOString(),
+          source: 'auto' as const,
+          active: true,
+        }
+
+        const updated = {
+          patterns: [...learnedPatterns.patterns, newPattern]
+        }
+        await saveLearnedPatternsToFile(updated)
+        setTrainingSaved(true)
+        setStatusMessage(`Learned: "${pattern.description}"`)
+      } else {
+        setStatusMessage('Changes were too minor to extract a pattern. Try a more specific correction.')
+      }
+    } catch (error: any) {
+      setStatusMessage(`Training error: ${error.message}`)
+    }
+  }, [processedText, editedText, settings, learnedPatterns])
 
   const handleCycleMode = useCallback(async () => {
     if (!settings) return
@@ -520,6 +566,23 @@ export default function MainView() {
           </div>
         )}
 
+        {/* Training mode toggle */}
+        {!isRecording && !isProcessing && (
+          <button
+            onClick={() => { setTrainingMode(!trainingMode); setTrainingSaved(false) }}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium transition-all ${
+              trainingMode
+                ? 'bg-amber-500/20 text-amber-400 border border-amber-500/40'
+                : 'bg-cd-card text-cd-subtle border border-white/10 hover:text-cd-text hover:border-white/20'
+            }`}
+          >
+            <div className={`w-7 h-3.5 rounded-full relative transition-all ${trainingMode ? 'bg-amber-500' : 'bg-gray-600'}`}>
+              <div className={`absolute top-0.5 w-2.5 h-2.5 rounded-full bg-white transition-all ${trainingMode ? 'left-3.5' : 'left-0.5'}`} />
+            </div>
+            Train
+          </button>
+        )}
+
         {/* Rewrite button */}
         {lastCommittedText && !isRecording && !isProcessing && (
           <button
@@ -534,6 +597,23 @@ export default function MainView() {
         {/* Action buttons - stacked vertically */}
         {editedText && (
           <div className="flex flex-col gap-2 w-full mt-1">
+            {/* Training save button - prominent when training mode is on */}
+            {trainingMode && processedText && (
+              <button
+                onClick={handleTrainingSave}
+                disabled={trainingSaved}
+                className={`flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium transition-all shadow-sm w-full ${
+                  trainingSaved
+                    ? 'bg-green-500 text-white'
+                    : 'bg-amber-500 hover:bg-amber-400 text-black hover:shadow-md'
+                }`}
+                title="Save your corrections as a learning pattern"
+              >
+                {trainingSaved ? <HiCheck className="w-3.5 h-3.5" /> : '🧠'}
+                {trainingSaved ? 'Learned!' : 'Save Training'}
+              </button>
+            )}
+
             <button
               onClick={handleCopy}
               disabled={!editedText}
@@ -572,22 +652,40 @@ export default function MainView() {
 
       {/* Right panel: text area (fills remaining space) */}
       <div className="flex flex-col flex-1 min-w-0 gap-2">
-        <div className="bg-cd-card rounded-2xl border border-white/5 p-3 flex-1 flex flex-col">
+        {/* Training mode banner */}
+        {trainingMode && (
+          <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl px-3 py-1.5 text-xs text-amber-400">
+            Training mode: Speak, review the output, make corrections, then hit Save Training.
+          </div>
+        )}
+
+        <div className={`bg-cd-card rounded-2xl border p-3 flex-1 flex flex-col ${
+          trainingMode ? 'border-amber-500/30' : 'border-white/5'
+        }`}>
           <textarea
             ref={textareaRef}
             value={editedText}
-            onChange={(e) => setEditedText(e.target.value)}
+            onChange={(e) => { setEditedText(e.target.value); setTrainingSaved(false) }}
             placeholder={isRecording
               ? "Recording in progress..."
-              : "Click the microphone to start dictating, or type directly here..."
+              : trainingMode
+                ? "Speak naturally, then edit the output to match how you actually want it..."
+                : "Click the microphone to start dictating, or type directly here..."
             }
             className="w-full h-full bg-transparent border-none resize-none focus:outline-none focus:ring-0 text-cd-text placeholder-cd-subtle/50 flex-1"
             style={{ fontSize: `${settings?.fontSize || 16}px`, minHeight: '100px' }}
           />
         </div>
 
-        {/* Raw text comparison */}
-        {rawText && processedText && rawText !== processedText && (
+        {/* AI output comparison (always show in training mode, collapsible otherwise) */}
+        {trainingMode && processedText && editedText !== processedText && (
+          <div className="p-2 bg-cd-card rounded-xl text-xs border border-white/5">
+            <span className="text-amber-400 font-medium">AI gave you: </span>
+            <span className="text-cd-subtle">{processedText}</span>
+          </div>
+        )}
+
+        {!trainingMode && rawText && processedText && rawText !== processedText && (
           <details className="group">
             <summary className="text-xs text-cd-subtle cursor-pointer hover:text-cd-text transition-colors">
               View original transcription
