@@ -85,40 +85,21 @@ let isQuitting = false
 let lastForegroundWindow: string = '' // Track foreground window title for text targeting
 
 // ---- Hardware-level Ctrl+V simulation ----
-// Uses Win32 SendInput API for reliable paste into all apps (including Chrome, VS Code, etc.)
+// Uses Win32 keybd_event for reliable paste into all apps (including Chrome, VS Code, etc.)
 // SendKeys.SendWait uses the Windows message queue, which sandboxed apps like Chrome ignore.
-// SendInput simulates actual hardware key events that all apps accept.
-const SEND_INPUT_PASTE_SCRIPT = `powershell -NoProfile -Command "` +
-  `$sig = '[DllImport(\\\"user32.dll\\\")] public static extern uint SendInput(uint n, IntPtr p, int s);'; ` +
-  `$SI = Add-Type -MemberDefinition $sig -Name KI -Namespace W32 -PassThru; ` +
-  `$s = 40; $b = [System.Runtime.InteropServices.Marshal]::AllocHGlobal($s * 4); ` +
-  // Helper: write one INPUT_KEYBOARD event at offset
-  // Ctrl down
-  `[System.Runtime.InteropServices.Marshal]::WriteInt32($b, 0, 1); ` +
-  `[System.Runtime.InteropServices.Marshal]::WriteInt16($b, 4, 0x11); ` +
-  `[System.Runtime.InteropServices.Marshal]::WriteInt32($b, 8, 0); ` +
-  `for($i=12;$i-lt 40;$i+=4){[System.Runtime.InteropServices.Marshal]::WriteInt32($b,$i,0)}; ` +
-  // V down
-  `$o=$s; [System.Runtime.InteropServices.Marshal]::WriteInt32([IntPtr]::Add($b,$o), 1); ` +
-  `[System.Runtime.InteropServices.Marshal]::WriteInt16([IntPtr]::Add($b,$o+4), 0x56); ` +
-  `[System.Runtime.InteropServices.Marshal]::WriteInt32([IntPtr]::Add($b,$o+8), 0); ` +
-  `for($i=12;$i-lt 40;$i+=4){[System.Runtime.InteropServices.Marshal]::WriteInt32([IntPtr]::Add($b,$o+$i),0)}; ` +
-  // V up
-  `$o=$s*2; [System.Runtime.InteropServices.Marshal]::WriteInt32([IntPtr]::Add($b,$o), 1); ` +
-  `[System.Runtime.InteropServices.Marshal]::WriteInt16([IntPtr]::Add($b,$o+4), 0x56); ` +
-  `[System.Runtime.InteropServices.Marshal]::WriteInt32([IntPtr]::Add($b,$o+8), 2); ` +
-  `for($i=12;$i-lt 40;$i+=4){[System.Runtime.InteropServices.Marshal]::WriteInt32([IntPtr]::Add($b,$o+$i),0)}; ` +
-  // Ctrl up
-  `$o=$s*3; [System.Runtime.InteropServices.Marshal]::WriteInt32([IntPtr]::Add($b,$o), 1); ` +
-  `[System.Runtime.InteropServices.Marshal]::WriteInt16([IntPtr]::Add($b,$o+4), 0x11); ` +
-  `[System.Runtime.InteropServices.Marshal]::WriteInt32([IntPtr]::Add($b,$o+8), 2); ` +
-  `for($i=12;$i-lt 40;$i+=4){[System.Runtime.InteropServices.Marshal]::WriteInt32([IntPtr]::Add($b,$o+$i),0)}; ` +
-  `[W32.KI]::SendInput(4, $b, $s); ` +
-  `[System.Runtime.InteropServices.Marshal]::FreeHGlobal($b)"`
+// keybd_event simulates hardware-level key events that all apps accept.
+// VK_CONTROL=0x11, VK_V=0x56, KEYEVENTF_KEYUP=0x0002
+const KEYBD_EVENT_PASTE_SCRIPT = `powershell -NoProfile -Command "` +
+  `Add-Type -MemberDefinition '[DllImport(\\\"user32.dll\\\")] public static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, UIntPtr dwExtraInfo);' -Name KE -Namespace W32; ` +
+  `[W32.KE]::keybd_event(0x11, 0, 0, [UIntPtr]::Zero); ` +          // Ctrl down
+  `[W32.KE]::keybd_event(0x56, 0, 0, [UIntPtr]::Zero); ` +          // V down
+  `Start-Sleep -Milliseconds 50; ` +                                  // Brief hold
+  `[W32.KE]::keybd_event(0x56, 0, 0x0002, [UIntPtr]::Zero); ` +     // V up
+  `[W32.KE]::keybd_event(0x11, 0, 0x0002, [UIntPtr]::Zero)"`         // Ctrl up
 
 function simulateCtrlV(): Promise<void> {
   return new Promise((resolve, reject) => {
-    exec(SEND_INPUT_PASTE_SCRIPT, { timeout: 5000 }, (error) => {
+    exec(KEYBD_EVENT_PASTE_SCRIPT, { timeout: 5000 }, (error) => {
       if (error) reject(error)
       else resolve()
     })
@@ -841,7 +822,7 @@ ipcMain.handle('paste-to-external', async (_, text: string) => {
     // 3. Wait for focus to shift (500ms gives the OS time to activate the previous window)
     await new Promise(resolve => setTimeout(resolve, 500))
 
-    // 4. Simulate Ctrl+V via Win32 SendInput (hardware-level, works with Chrome)
+    // 4. Simulate Ctrl+V via Win32 keybd_event (hardware-level, works with Chrome)
     await simulateCtrlV()
 
     // 5. Brief delay then restore
@@ -862,7 +843,7 @@ ipcMain.handle('paste-to-external', async (_, text: string) => {
 })
 
 // Auto-type text to active field (from hotkey flow -- does NOT minimize/restore)
-// Uses Win32 SendInput for hardware-level key simulation (works with Chrome, Electron apps, etc.)
+// Uses Win32 keybd_event for hardware-level key simulation (works with Chrome, Electron apps, etc.)
 ipcMain.handle('auto-type-text', async (_, text: string) => {
   try {
     // 1. Copy text to clipboard
@@ -871,7 +852,7 @@ ipcMain.handle('auto-type-text', async (_, text: string) => {
     // 2. Wait for clipboard to settle and OS focus to stabilize
     await new Promise(resolve => setTimeout(resolve, 200))
 
-    // 3. Simulate Ctrl+V via Win32 SendInput
+    // 3. Simulate Ctrl+V via Win32 keybd_event
     await simulateCtrlV()
 
     return true
