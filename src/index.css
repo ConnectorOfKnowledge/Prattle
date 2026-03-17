@@ -3,10 +3,15 @@
 @tailwind utilities;
 
 @layer base {
+  /* Only apply dark background to the main app window, not the transparent indicator overlay.
+     The indicator window sets data-indicator="true" on <html> to opt out of the dark bg. */
   body {
-    @apply bg-cd-bg text-cd-text font-sans antialiased;
+    @apply text-cd-text font-sans antialiased;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+  }
+  html:not([data-indicator]) body {
+    @apply bg-cd-bg;
   }
 }
 

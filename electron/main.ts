@@ -86,6 +86,7 @@ function writeJsonFile(filename: string, data: any): void {
 
 let mainWindow: BrowserWindow | null = null
 let indicatorWindow: BrowserWindow | null = null
+let indicatorReady = false // Track whether indicator renderer has loaded and is ready for IPC
 let tray: Tray | null = null
 let isQuitting = false
 let lastForegroundWindow: string = '' // Track foreground window title for text targeting
@@ -106,21 +107,116 @@ const STOP_DELAY = 250 // ms — delay before processing on keyup (allows double
 
 // ---- Foreground window tracking ----
 // Detect the active window title so the user knows where text will be pasted.
+// Uses a persistent PowerShell process with pre-compiled C# type to avoid the
+// massive overhead of spawning a new PowerShell + compiling Add-Type on every poll.
+let foregroundPsProcess: ReturnType<typeof exec> | null = null
+let foregroundPsReady = false
+
 // Returns the window title of the foreground app, or empty string on failure.
+// When the persistent PS process is available, sends a command to it;
+// otherwise falls back to a lightweight one-shot command.
 function getForegroundWindowTitle(): Promise<string> {
   return new Promise((resolve) => {
-    exec(
-      'powershell -NoProfile -Command "(Get-Process | Where-Object {$_.MainWindowHandle -eq (Add-Type -MemberDefinition \'[DllImport(\\\"user32.dll\\\")] public static extern IntPtr GetForegroundWindow();\' -Name W -Namespace W -PassThru)::GetForegroundWindow()}).MainWindowTitle"',
-      { timeout: 2000 },
-      (error, stdout) => {
-        if (error) {
-          resolve('')
-        } else {
-          resolve(stdout.trim())
+    // Use the persistent PowerShell process if it's ready
+    if (foregroundPsProcess && foregroundPsReady) {
+      // Write a command that outputs the title followed by a sentinel line
+      foregroundPsProcess.stdin?.write('Write-Output ([FgHelper]::GetTitle()); Write-Output "---END---"\n')
+
+      let output = ''
+      const onData = (chunk: Buffer | string) => {
+        output += chunk.toString()
+        if (output.includes('---END---')) {
+          foregroundPsProcess?.stdout?.removeListener('data', onData)
+          const lines = output.split('\n').map(l => l.trim()).filter(l => l && l !== '---END---')
+          resolve(lines[0] || '')
         }
+      }
+      foregroundPsProcess.stdout?.on('data', onData)
+
+      // Safety timeout -- don't hang forever
+      setTimeout(() => {
+        foregroundPsProcess?.stdout?.removeListener('data', onData)
+        if (!output.includes('---END---')) resolve('')
+      }, 1000)
+      return
+    }
+
+    // Fallback: lightweight one-shot (faster than the old Add-Type approach)
+    exec(
+      'powershell -NoProfile -Command "[Console]::OutputEncoding = [Text.Encoding]::UTF8; Add-Type -TypeDefinition \'using System; using System.Runtime.InteropServices; using System.Text; public class FgW { [DllImport(\"user32.dll\")] static extern IntPtr GetForegroundWindow(); [DllImport(\"user32.dll\", CharSet = CharSet.Unicode)] static extern int GetWindowText(IntPtr hWnd, StringBuilder sb, int count); public static string Get() { var sb = new StringBuilder(256); GetWindowText(GetForegroundWindow(), sb, 256); return sb.ToString(); } }\'; [FgW]::Get()"',
+      { timeout: 3000 },
+      (error, stdout) => {
+        resolve(error ? '' : stdout.trim())
       }
     )
   })
+}
+
+// Start a persistent PowerShell process with the C# type pre-compiled.
+// This makes subsequent GetTitle() calls near-instant instead of ~500ms each.
+function startPersistentPowerShell() {
+  if (foregroundPsProcess) return
+
+  foregroundPsProcess = exec(
+    'powershell -NoProfile -NoExit -Command "-"',
+    { timeout: 0 } // No timeout for persistent process
+  )
+
+  // Pre-compile the C# helper type and define a convenience function
+  const initScript = `
+Add-Type -TypeDefinition '
+using System;
+using System.Runtime.InteropServices;
+using System.Text;
+public class FgHelper {
+  [DllImport("user32.dll")]
+  static extern IntPtr GetForegroundWindow();
+  [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+  static extern int GetWindowText(IntPtr hWnd, StringBuilder sb, int count);
+  public static string GetTitle() {
+    var sb = new StringBuilder(256);
+    GetWindowText(GetForegroundWindow(), sb, 256);
+    return sb.ToString();
+  }
+}
+'
+Write-Output "---READY---"
+`
+  foregroundPsProcess.stdin?.write(initScript + '\n')
+
+  // Wait for the READY signal
+  let initOutput = ''
+  const onInit = (chunk: Buffer | string) => {
+    initOutput += chunk.toString()
+    if (initOutput.includes('---READY---')) {
+      foregroundPsProcess?.stdout?.removeListener('data', onInit)
+      foregroundPsReady = true
+      console.log('[Prattle] Persistent PowerShell ready for foreground tracking')
+    }
+  }
+  foregroundPsProcess.stdout?.on('data', onInit)
+
+  foregroundPsProcess.on('exit', () => {
+    foregroundPsProcess = null
+    foregroundPsReady = false
+  })
+
+  foregroundPsProcess.on('error', (err) => {
+    console.error('[Prattle] Persistent PowerShell error:', err)
+    foregroundPsProcess = null
+    foregroundPsReady = false
+  })
+}
+
+function stopPersistentPowerShell() {
+  if (foregroundPsProcess) {
+    try {
+      foregroundPsProcess.stdin?.write('exit\n')
+      foregroundPsProcess.kill()
+    } catch {}
+    foregroundPsProcess = null
+    foregroundPsReady = false
+  }
 }
 
 // Periodically track foreground window when recording (so indicator shows target)
@@ -128,6 +224,10 @@ let foregroundTrackingInterval: ReturnType<typeof setInterval> | null = null
 
 function startForegroundTracking() {
   if (foregroundTrackingInterval) return
+
+  // Start the persistent PS process for fast polling
+  startPersistentPowerShell()
+
   // Immediately capture the current foreground window
   getForegroundWindowTitle().then(title => {
     if (title && !title.includes('Prattle')) {
@@ -151,6 +251,7 @@ function stopForegroundTracking() {
     clearInterval(foregroundTrackingInterval)
     foregroundTrackingInterval = null
   }
+  stopPersistentPowerShell()
 }
 
 // ---- Configurable hotkey system ----
@@ -265,8 +366,15 @@ function createWindow() {
   })
 }
 
+// Queue of messages to send to the indicator once its renderer is ready.
+// Messages sent before the renderer loads are silently lost -- this buffer
+// catches them and replays once `did-finish-load` fires.
+let indicatorPendingMessages: { channel: string; args: any[] }[] = []
+
 function createIndicatorWindow() {
   if (indicatorWindow && !indicatorWindow.isDestroyed()) return
+
+  indicatorReady = false
 
   const primaryDisplay = screen.getPrimaryDisplay()
   const { width: screenW } = primaryDisplay.workAreaSize
@@ -286,13 +394,32 @@ function createIndicatorWindow() {
     maximizable: false,
     focusable: false,
     transparent: true,
-    show: false, // Start hidden — pre-created on app launch
+    show: false, // Start hidden -- pre-created on app launch
     backgroundColor: '#00000000',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
     },
+  })
+
+  // Mark the indicator as ready once its renderer finishes loading.
+  // This is the safe point to start sending IPC messages and showing the window.
+  indicatorWindow.webContents.once('did-finish-load', () => {
+    indicatorReady = true
+
+    // If showIndicator() was called while we were loading, show now
+    if (indicatorShouldShow && indicatorWindow && !indicatorWindow.isDestroyed()) {
+      indicatorWindow.show()
+    }
+
+    // Flush any messages that were queued while the renderer was loading
+    for (const msg of indicatorPendingMessages) {
+      if (indicatorWindow && !indicatorWindow.isDestroyed()) {
+        indicatorWindow.webContents.send(msg.channel, ...msg.args)
+      }
+    }
+    indicatorPendingMessages = []
   })
 
   if (isDev) {
@@ -305,25 +432,48 @@ function createIndicatorWindow() {
 
   indicatorWindow.on('closed', () => {
     indicatorWindow = null
+    indicatorReady = false
+  })
+
+  // If the indicator renderer crashes, recreate the window so it's ready
+  // for the next recording session instead of silently staying dead.
+  indicatorWindow.webContents.on('render-process-gone', (_event, details) => {
+    console.error('[Prattle] Indicator renderer crashed:', details.reason)
+    indicatorWindow = null
+    indicatorReady = false
+    // Recreate after a brief delay to avoid tight crash loops
+    setTimeout(() => createIndicatorWindow(), 500)
   })
 }
 
+// Whether the indicator should be visible. When true, the indicator will be
+// shown as soon as the window is ready (or immediately if already ready).
+let indicatorShouldShow = false
+
 function showIndicator() {
+  indicatorShouldShow = true
+
   if (!indicatorWindow || indicatorWindow.isDestroyed()) {
     createIndicatorWindow()
-    // If we had to create it, wait for it to load before showing
-    indicatorWindow?.once('ready-to-show', () => {
-      indicatorWindow?.show()
-    })
+    // The `did-finish-load` handler in createIndicatorWindow checks
+    // indicatorShouldShow and calls .show() when appropriate.
   } else {
     indicatorWindow.show()
   }
 }
 
 function hideIndicator() {
+  indicatorShouldShow = false
+
+  // Clear any pending messages -- if we're hiding, we don't want stale
+  // 'start' or 'stop' commands replaying when the renderer finishes loading.
+  indicatorPendingMessages = []
+
   if (indicatorWindow && !indicatorWindow.isDestroyed()) {
     // Tell the indicator component to reset its state before hiding
-    indicatorWindow.webContents.send('recording-command', 'done')
+    if (indicatorReady) {
+      indicatorWindow.webContents.send('recording-command', 'done')
+    }
     indicatorWindow.hide()
   }
 }
@@ -336,7 +486,13 @@ function sendToRenderer(channel: string, ...args: any[]) {
 
 function sendToIndicator(channel: string, ...args: any[]) {
   if (indicatorWindow && !indicatorWindow.isDestroyed()) {
-    indicatorWindow.webContents.send(channel, ...args)
+    if (indicatorReady) {
+      indicatorWindow.webContents.send(channel, ...args)
+    } else {
+      // Renderer hasn't finished loading yet -- queue the message so it
+      // gets delivered once `did-finish-load` fires.
+      indicatorPendingMessages.push({ channel, args })
+    }
   }
 }
 
@@ -685,6 +841,7 @@ app.on('before-quit', () => {
 
 app.on('will-quit', () => {
   try { uIOhook.stop() } catch (_) {}
+  stopPersistentPowerShell()
 })
 
 // Initialize default data files if they don't exist
