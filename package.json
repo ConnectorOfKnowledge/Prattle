@@ -1,6 +1,6 @@
 {
   "name": "prattle",
-  "version": "1.9.6",
+  "version": "2.1.4",
   "description": "A smart voice-to-text desktop app with learning capabilities",
   "main": "dist-electron/main.js",
   "scripts": {

@@ -1,5 +1,14 @@
 // Deepgram WebSocket streaming transcription service
 // Streams audio chunks in real-time and receives interim + final transcript results
+//
+// KEY DESIGN: Audio buffering for zero-latency start
+// Audio chunks are buffered from the moment sendAudio() is called, even BEFORE
+// the WebSocket object exists. When the WebSocket connects, all buffered chunks
+// are replayed. This prevents the "garbled first words" problem.
+//
+// SESSION ISOLATION: Each start() gets a unique session ID. All callbacks
+// (onmessage, onopen, onerror, onclose) check the session ID before acting.
+// This prevents stale WebSocket events from corrupting the current recording.
 
 export type TranscriptCallback = (text: string, isFinal: boolean) => void
 export type ErrorCallback = (error: Error) => void
@@ -11,6 +20,23 @@ export class DeepgramStreamService {
   private onError: ErrorCallback | null = null
   private closeResolve: (() => void) | null = null
 
+  // Pre-connect audio buffer: captures PCM chunks before AND during WebSocket connect.
+  // Unlike the previous design, this buffers even when this.ws is null (before start()
+  // creates the WebSocket). This is critical because PCM capture starts before start().
+  private preConnectBuffer: ArrayBuffer[] = []
+  private wsReady = false
+
+  // Session tracking: monotonically increasing counter. Each start() increments it.
+  // All event handlers compare against their captured session ID before acting.
+  private sessionId = 0
+
+  // Track whether we're in a "preparing to stream" state (between prepareForAudio()
+  // and the WebSocket connecting). sendAudio() buffers during this phase.
+  private isBuffering = false
+
+  // Connection timeout handle -- cleared on successful connect or abort
+  private connectTimeout: ReturnType<typeof setTimeout> | null = null
+
   get transcript(): string {
     return this.finalizedTranscript
   }
@@ -19,15 +45,35 @@ export class DeepgramStreamService {
     return this.ws?.readyState === WebSocket.OPEN
   }
 
+  // Call this BEFORE starting PCM capture to enable audio buffering.
+  // This allows sendAudio() to buffer chunks even before start() creates the WebSocket.
+  prepareForAudio(): void {
+    this.preConnectBuffer = []
+    this.isBuffering = true
+    this.wsReady = false
+  }
+
   async start(
     apiKey: string,
     sampleRate: number,
     onTranscript: TranscriptCallback,
     onError: ErrorCallback
   ): Promise<void> {
+    // Kill any previous WebSocket that wasn't fully cleaned up
+    if (this.ws) {
+      console.warn('[Prattle] Previous WebSocket still alive at start() -- aborting it')
+      this.abort()
+    }
+
+    // Increment session ID so stale callbacks get ignored
+    const currentSession = ++this.sessionId
+
     this.finalizedTranscript = ''
     this.onTranscript = onTranscript
     this.onError = onError
+    // Don't clear preConnectBuffer here -- it may already have buffered audio
+    // from between prepareForAudio() and now
+    this.wsReady = false
 
     const params = new URLSearchParams({
       model: 'nova-3',
@@ -35,33 +81,87 @@ export class DeepgramStreamService {
       smart_format: 'true',
       punctuate: 'true',
       interim_results: 'true',
-      endpointing: '300', // ms of silence before finalizing a segment
+      endpointing: '300',
       encoding: 'linear16',
       sample_rate: String(sampleRate),
       channels: '1',
     })
 
     return new Promise<void>((resolve, reject) => {
-      // Auth via subprotocol keeps the API key out of the URL
       this.ws = new WebSocket(
         `wss://api.deepgram.com/v1/listen?${params}`,
         ['token', apiKey]
       )
 
-      this.ws.onopen = () => {
-        console.log('[Prattle] Deepgram WebSocket connected')
+      // Connection timeout -- if WebSocket doesn't connect within 5s, fail gracefully
+      this.connectTimeout = setTimeout(() => {
+        this.connectTimeout = null
+        if (this.sessionId !== currentSession) return
+        console.error('[Prattle] WebSocket connection timeout (5s)')
+        this.ws?.close()
+        this.ws = null
+        this.isBuffering = false
+        reject(new Error('Deepgram WebSocket connection timeout'))
+      }, 5000)
+
+      // Capture a reference to the specific WebSocket for this session.
+      // Using this.ws! in handlers is unsafe because this.ws could point
+      // to a different WebSocket if start() is called again rapidly.
+      const ws = this.ws
+
+      ws.onopen = () => {
+        if (this.connectTimeout) {
+          clearTimeout(this.connectTimeout)
+          this.connectTimeout = null
+        }
+
+        // Stale session check
+        if (this.sessionId !== currentSession) {
+          console.warn('[Prattle] Stale WebSocket connected (session mismatch) -- closing')
+          ws.close()
+          return
+        }
+
+        console.log(`[Prattle] Deepgram WebSocket connected (session ${currentSession}, ${this.preConnectBuffer.length} buffered chunks to replay)`)
+
+        // Replay all audio captured while we were connecting (or before start() was called)
+        for (const chunk of this.preConnectBuffer) {
+          ws.send(chunk)
+        }
+        this.preConnectBuffer = []
+        this.wsReady = true
+        this.isBuffering = false
+
         resolve()
       }
 
-      this.ws.onerror = () => {
+      ws.onerror = () => {
+        if (this.connectTimeout) {
+          clearTimeout(this.connectTimeout)
+          this.connectTimeout = null
+        }
+        this.preConnectBuffer = []
+        this.wsReady = false
+        this.isBuffering = false
+        if (this.sessionId !== currentSession) return
         const error = new Error('Deepgram WebSocket connection failed')
         onError(error)
         reject(error)
       }
 
-      this.ws.onmessage = (event) => {
+      ws.onmessage = (event) => {
+        // Ignore messages from old sessions
+        if (this.sessionId !== currentSession) return
+
         try {
           const data = JSON.parse(event.data)
+
+          // Handle Deepgram error messages (not just Results)
+          if (data.type === 'Error' || data.type === 'CloseStream') {
+            console.error('[Prattle] Deepgram error:', data.message || data.description || data)
+            onError(new Error(data.message || data.description || 'Deepgram stream error'))
+            return
+          }
 
           if (data.type === 'Results') {
             const alt = data.channel?.alternatives?.[0]
@@ -71,7 +171,6 @@ export class DeepgramStreamService {
             if (!segment) return
 
             if (data.is_final) {
-              // Confirmed segment — append to finalized transcript
               if (this.finalizedTranscript) {
                 this.finalizedTranscript += ' ' + segment
               } else {
@@ -79,7 +178,6 @@ export class DeepgramStreamService {
               }
               onTranscript(this.finalizedTranscript, true)
             } else {
-              // Interim result — show finalized + current partial
               const display = this.finalizedTranscript
                 ? this.finalizedTranscript + ' ' + segment
                 : segment
@@ -91,9 +189,10 @@ export class DeepgramStreamService {
         }
       }
 
-      this.ws.onclose = (event) => {
-        console.log(`[Prattle] Deepgram WebSocket closed (code: ${event.code})`)
-        if (this.closeResolve) {
+      ws.onclose = (event) => {
+        console.log(`[Prattle] Deepgram WebSocket closed (session ${currentSession}, code: ${event.code})`)
+        // Only resolve the stop() promise if this is the current session's close
+        if (this.sessionId === currentSession && this.closeResolve) {
           this.closeResolve()
           this.closeResolve = null
         }
@@ -102,44 +201,77 @@ export class DeepgramStreamService {
   }
 
   sendAudio(chunk: ArrayBuffer): void {
-    if (this.ws?.readyState === WebSocket.OPEN) {
+    if (this.wsReady && this.ws?.readyState === WebSocket.OPEN) {
       this.ws.send(chunk)
+    } else if (this.isBuffering || (this.ws && !this.wsReady)) {
+      // Buffer audio when:
+      // 1. isBuffering is true (prepareForAudio called, start() not yet called or connecting)
+      // 2. WebSocket exists but not yet connected
+      this.preConnectBuffer.push(chunk)
     }
+    // If neither condition is true, audio is silently dropped (not recording)
   }
 
   async stop(): Promise<string> {
+    // Immediately stop buffering and accepting new audio
+    this.preConnectBuffer = []
+    this.wsReady = false
+    this.isBuffering = false
+
+    if (this.connectTimeout) {
+      clearTimeout(this.connectTimeout)
+      this.connectTimeout = null
+    }
+
     if (!this.ws) return this.finalizedTranscript
 
-    if (this.ws.readyState === WebSocket.OPEN) {
-      // Tell Deepgram to flush remaining audio and close gracefully
-      this.ws.send(JSON.stringify({ type: 'CloseStream' }))
+    const ws = this.ws
+    const transcript = this.finalizedTranscript
 
-      // Wait for Deepgram to send final results and close the connection
-      await new Promise<void>((resolve) => {
-        this.closeResolve = resolve
-        // Safety timeout — don't hang forever if close never fires
-        setTimeout(() => {
-          this.closeResolve = null
-          resolve()
-        }, 3000)
-      })
+    // Increment session ID to immediately invalidate all callbacks on this WebSocket.
+    // This is the nuclear option: even if late messages arrive, they get dropped.
+    this.sessionId++
+
+    if (ws.readyState === WebSocket.OPEN) {
+      // Send CloseStream to be polite, then close immediately.
+      // We used to wait up to 3 seconds for Deepgram's final flush, but that
+      // created a window where late callbacks could corrupt the next session.
+      // The streaming transcript we already have is good enough -- the final
+      // flush usually just adds a few trailing words.
+      try { ws.send(JSON.stringify({ type: 'CloseStream' })) } catch {}
+      try { ws.close() } catch {}
+    } else {
+      try { ws.close() } catch {}
     }
 
     this.ws = null
     this.onTranscript = null
     this.onError = null
+    this.closeResolve = null
 
-    return this.finalizedTranscript
+    console.log(`[Prattle] Deepgram stop() -- returning transcript (${transcript.split(' ').length} words)`)
+    return transcript
   }
 
   abort(): void {
+    // Increment session ID to invalidate any in-flight callbacks
+    this.sessionId++
+
+    if (this.connectTimeout) {
+      clearTimeout(this.connectTimeout)
+      this.connectTimeout = null
+    }
     if (this.ws) {
-      this.ws.close()
+      try { this.ws.close() } catch {}
       this.ws = null
     }
+    this.preConnectBuffer = []
+    this.wsReady = false
+    this.isBuffering = false
     this.finalizedTranscript = ''
     this.onTranscript = null
     this.onError = null
+    this.closeResolve = null
   }
 }
 

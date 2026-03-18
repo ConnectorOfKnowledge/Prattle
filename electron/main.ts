@@ -536,7 +536,8 @@ function setupHotkeySystem() {
       lastTriggerPressTime = now
 
       if (timeSinceLastPress < DOUBLE_TAP_WINDOW) {
-        // Double-tap detected: cancel any pending stop from the first tap's release
+        // Double-tap detected
+        const stopAlreadyFired = !stopDelayTimeout
         if (stopDelayTimeout) {
           clearTimeout(stopDelayTimeout)
           stopDelayTimeout = null
@@ -552,28 +553,33 @@ function setupHotkeySystem() {
           sendToIndicator('recording-command', 'stop')
         } else {
           // Start hands-free recording
-          // Recording is already active from the first tap — just switch to hands-free mode
           isHandsFreeMode = true
           isHoldRecording = false
+
+          if (stopAlreadyFired) {
+            // The STOP_DELAY already fired and sent 'stop' to the renderer,
+            // so the recording was already stopped/processing. We need to
+            // start a fresh recording in hands-free mode.
+            startForegroundTracking()
+            sendToRenderer('recording-command', 'start-handsfree')
+          }
+          // If stop hadn't fired yet, the recording is still running --
+          // just switch modes without restarting
           showIndicator()
           sendToIndicator('recording-command', 'start-handsfree')
-          // Don't send start-handsfree to renderer — recording is already running
         }
       } else if (!isHandsFreeMode) {
         // Single press: start hold-to-record
+        // ALWAYS start a fresh dictation. Rewrite mode should only activate
+        // via the explicit Rewrite button in the UI, never automatically.
+        // The old behavior (auto-rewrite when committed text exists) caused
+        // the AI to interpret new speech as modification instructions on
+        // the previous text, producing bizarre outputs.
         isHoldRecording = true
         startForegroundTracking()
-
-        // Check if we should enter rewrite mode
-        if (hasLastCommittedText) {
-          sendToRenderer('recording-command', 'start-rewrite')
-          showIndicator()
-          sendToIndicator('recording-command', 'start-rewrite')
-        } else {
-          sendToRenderer('recording-command', 'start')
-          showIndicator()
-          sendToIndicator('recording-command', 'start')
-        }
+        sendToRenderer('recording-command', 'start')
+        showIndicator()
+        sendToIndicator('recording-command', 'start')
       }
     }
   })
@@ -589,9 +595,14 @@ function setupHotkeySystem() {
       triggerKeyDown = false
 
       if (isHoldRecording && !isHandsFreeMode) {
-        // Delay the stop to allow double-tap detection — if a second keydown
-        // comes within DOUBLE_TAP_WINDOW, this timeout gets cancelled and
-        // we switch to hands-free mode instead of processing a ghost recording
+        // IMMEDIATELY tell the renderer to stop capturing audio.
+        // This prevents the 250ms STOP_DELAY from capturing ambient noise
+        // (TV, room sounds, keyboard clicks) after the user releases the key.
+        // The 'stop-capture' command stops PCM data flow to Deepgram but does
+        // NOT trigger transcription processing -- that happens with 'stop'.
+        sendToRenderer('recording-command', 'stop-capture')
+
+        // Delay the full stop to allow double-tap detection
         stopDelayTimeout = setTimeout(() => {
           stopDelayTimeout = null
           if (isHoldRecording && !isHandsFreeMode) {

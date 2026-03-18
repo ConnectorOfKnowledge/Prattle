@@ -49,6 +49,7 @@ export class SpeechService {
   private audioContext: AudioContext | null = null
   private analyserNode: AnalyserNode | null = null
   private gainNode: GainNode | null = null
+  private sourceNode: MediaStreamAudioSourceNode | null = null
   private visualizationStream: MediaStream | null = null
 
   // Audio energy tracking — used to detect silence/noise-only recordings
@@ -62,16 +63,23 @@ export class SpeechService {
   private pcmProcessor: ScriptProcessorNode | null = null
   private onPcmData: ((buffer: ArrayBuffer) => void) | null = null
 
-  async startRecording(): Promise<void> {
-    try {
-      // Use the simplest possible constraint — { audio: true } is the most
-      // compatible call and lets the browser pick the best device and settings.
-      // Specific constraints like sampleRate can cause NotFoundError on some
-      // devices that don't support the exact requested configuration.
-      this.stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+  // Resource tracking for leak prevention
+  private activeRecordingId = 0
+  private safetyTimeout: ReturnType<typeof setTimeout> | null = null
 
-      // Set up audio visualization from the recording stream
-      this.setupAnalyser(this.stream)
+  async startRecording(): Promise<void> {
+    const recordingId = ++this.activeRecordingId
+
+    try {
+      // Safety: if a previous recording wasn't cleaned up, do it now
+      if (this.stream) {
+        console.warn('[Prattle] Previous stream still active at startRecording -- cleaning up')
+        this.cleanup()
+      }
+
+      // Use the simplest possible constraint -- { audio: true } is the most
+      // compatible call and lets the browser pick the best device and settings.
+      this.stream = await navigator.mediaDevices.getUserMedia({ audio: true })
 
       this.audioChunks = []
       this.mediaRecorder = new MediaRecorder(this.stream, {
@@ -87,11 +95,38 @@ export class SpeechService {
         }
       }
 
-      this.mediaRecorder.start(100) // Collect data every 100ms
+      // Default onstop handler as safety net for unexpected stops (mic unplug, etc.)
+      this.mediaRecorder.onstop = () => {
+        console.warn('[Prattle] MediaRecorder stopped unexpectedly -- cleaning up')
+        this.cleanup()
+      }
+
+      // Start recording IMMEDIATELY, BEFORE analyser setup.
+      // The MediaRecorder works directly off the stream and doesn't need the
+      // AudioContext graph. Setting up the analyser takes 50-150ms (AudioContext
+      // init, node creation) and every ms of delay means lost words.
+      this.mediaRecorder.start(100)
+
+      // Set up audio visualization AFTER recording starts
+      this.setupAnalyser(this.stream)
 
       // Start tracking audio energy for silence detection
       this.startEnergyTracking()
+
+      // Clearable safety timeout (prevents orphaned mic streams from killing the driver)
+      if (this.safetyTimeout) clearTimeout(this.safetyTimeout)
+      this.safetyTimeout = setTimeout(() => {
+        this.safetyTimeout = null
+        if (this.activeRecordingId === recordingId && this.stream) {
+          console.error('[Prattle] Recording safety timeout (5 min) -- forcing cleanup')
+          this.cleanup()
+        }
+      }, 5 * 60 * 1000)
     } catch (error: any) {
+      // CRITICAL: clean up any partially-acquired resources on failure.
+      // Without this, a failed startRecording leaves the mic stream open.
+      this.cleanup()
+
       console.error('[Prattle] getUserMedia failed:', error?.name, error?.message)
 
       // Log device info for diagnostics
@@ -117,26 +152,43 @@ export class SpeechService {
   async stopRecording(): Promise<Blob> {
     return new Promise((resolve, reject) => {
       if (!this.mediaRecorder) {
+        this.cleanup() // Safety cleanup in case stream is dangling
         reject(new Error('No recording in progress'))
         return
       }
 
-      // Timeout guard — if onstop never fires (driver crash, etc.), force cleanup
-      // so the mic isn't left locked forever.
-      const timeout = setTimeout(() => {
-        console.error('[Prattle] stopRecording timed out — forcing cleanup')
-        const audioBlob = new Blob(this.audioChunks, {
-          type: this.getSupportedMimeType()
+      // Check MediaRecorder state -- calling stop() on 'inactive' throws DOMException
+      if (this.mediaRecorder.state === 'inactive') {
+        console.warn('[Prattle] MediaRecorder already inactive at stopRecording')
+        const audioBlob = new Blob(this.audioChunks, { type: this.getSupportedMimeType() })
+        this.cleanup()
+        resolve(audioBlob)
+        return
+      }
+
+      // IMMEDIATELY stop the mic stream tracks to prevent ambient noise capture.
+      // The MediaRecorder has already buffered all audio up to this point.
+      // Stopping tracks here means NO new audio enters the pipeline after the
+      // user releases the hotkey, eliminating the "TV noise at the end" bug.
+      // The MediaRecorder will still fire its final ondataavailable + onstop.
+      if (this.stream) {
+        this.stream.getTracks().forEach(track => {
+          track.stop()
+          console.log(`[Prattle] Stopped mic track immediately: ${track.label}`)
         })
+      }
+
+      // Timeout guard -- if onstop never fires (driver crash, etc.), force cleanup
+      const timeout = setTimeout(() => {
+        console.error('[Prattle] stopRecording timed out -- forcing cleanup')
+        const audioBlob = new Blob(this.audioChunks, { type: this.getSupportedMimeType() })
         this.cleanup()
         resolve(audioBlob)
       }, 5000)
 
       this.mediaRecorder.onstop = () => {
         clearTimeout(timeout)
-        const audioBlob = new Blob(this.audioChunks, {
-          type: this.getSupportedMimeType()
-        })
+        const audioBlob = new Blob(this.audioChunks, { type: this.getSupportedMimeType() })
         this.cleanup()
         resolve(audioBlob)
       }
@@ -152,26 +204,47 @@ export class SpeechService {
     this.cleanup()
   }
 
-  // Set up AudioContext + GainNode + AnalyserNode from a media stream
+  // Set up AudioContext + GainNode + AnalyserNode from a media stream.
+  // REUSES the AudioContext across recordings to avoid exhausting the browser's
+  // AudioContext limit (typically 6-8). Creating and closing contexts repeatedly
+  // can also leak resources on some Windows audio drivers (Intel SST in particular).
   private setupAnalyser(stream: MediaStream): void {
     try {
-      this.audioContext = new AudioContext()
+      // Disconnect previous source if switching streams
+      if (this.sourceNode) {
+        try { this.sourceNode.disconnect() } catch {}
+        this.sourceNode = null
+      }
+
+      // Reuse existing AudioContext if it's still alive
+      if (!this.audioContext || this.audioContext.state === 'closed') {
+        this.audioContext = new AudioContext()
+        console.log('[Prattle] Created new AudioContext (sampleRate:', this.audioContext.sampleRate, ')')
+      }
+
       // Resume AudioContext if suspended (happens in hidden/background windows)
       if (this.audioContext.state === 'suspended') {
         this.audioContext.resume()
       }
-      const source = this.audioContext.createMediaStreamSource(stream)
 
-      // Gain node for mic volume control (0-200% range)
-      this.gainNode = this.audioContext.createGain()
-      this.gainNode.gain.value = 1.0 // Default 100%
+      this.sourceNode = this.audioContext.createMediaStreamSource(stream)
 
-      this.analyserNode = this.audioContext.createAnalyser()
-      this.analyserNode.fftSize = 256
-      this.analyserNode.smoothingTimeConstant = 0.8
+      // Reuse gain + analyser nodes if they exist, create if not.
+      // cleanup() disconnects them but keeps them alive to avoid AudioContext churn.
+      if (!this.gainNode) {
+        this.gainNode = this.audioContext.createGain()
+        this.gainNode.gain.value = 1.0
+      }
 
-      // Chain: source -> gain -> analyser
-      source.connect(this.gainNode)
+      if (!this.analyserNode) {
+        this.analyserNode = this.audioContext.createAnalyser()
+        this.analyserNode.fftSize = 256
+        this.analyserNode.smoothingTimeConstant = 0.8
+      }
+
+      // Reconnect the full chain: source -> gain -> analyser
+      // cleanup() disconnects these between recordings; we re-establish here
+      this.sourceNode.connect(this.gainNode)
       this.gainNode.connect(this.analyserNode)
     } catch (error) {
       console.error('Failed to set up audio analyser:', error)
@@ -299,13 +372,17 @@ export class SpeechService {
     }
   }
 
-  // Stop visualization-only stream
+  // Stop visualization-only stream (but keep AudioContext alive for reuse)
   stopVisualization(): void {
     if (this.visualizationStream) {
       this.visualizationStream.getTracks().forEach(t => t.stop())
       this.visualizationStream = null
     }
-    this.cleanupAnalyser()
+    // Only disconnect source, don't destroy AudioContext
+    if (this.sourceNode) {
+      try { this.sourceNode.disconnect() } catch {}
+      this.sourceNode = null
+    }
   }
 
   // Get the analyser node for reading frequency/volume data
@@ -316,22 +393,76 @@ export class SpeechService {
   private cleanup(): void {
     this.stopEnergyTracking()
     this.stopPcmCapture()
+
+    // Clear safety timeout so it doesn't accumulate closures over hours of use
+    if (this.safetyTimeout) {
+      clearTimeout(this.safetyTimeout)
+      this.safetyTimeout = null
+    }
+
+    // Disconnect ALL audio graph nodes to release the OS audio pipeline.
+    // On Intel SST drivers, connected nodes keep the driver's internal session
+    // table alive even after the MediaStream tracks are stopped. Over hundreds
+    // of recording cycles, this exhausts the driver and it crashes.
+    if (this.sourceNode) {
+      try { this.sourceNode.disconnect() } catch {}
+      this.sourceNode = null
+    }
+    if (this.gainNode) {
+      try { this.gainNode.disconnect() } catch {}
+      // Don't null -- will be reconnected in next setupAnalyser()
+    }
+    if (this.analyserNode) {
+      try { this.analyserNode.disconnect() } catch {}
+      // Don't null -- will be reconnected in next setupAnalyser()
+    }
+
+    // ALWAYS stop the recording media stream tracks to release the mic hardware
     if (this.stream) {
-      this.stream.getTracks().forEach(track => track.stop())
+      this.stream.getTracks().forEach(track => {
+        track.stop()
+      })
       this.stream = null
     }
+
+    // ALSO stop any visualization-only stream (this was a major leak -- never
+    // cleaned up before, each leaked stream held an exclusive mic lock)
+    if (this.visualizationStream) {
+      this.visualizationStream.getTracks().forEach(t => t.stop())
+      this.visualizationStream = null
+    }
+
     this.mediaRecorder = null
     this.audioChunks = []
-    this.cleanupAnalyser()
   }
 
+  // Light cleanup for analyser-only resources (visualization streams)
   private cleanupAnalyser(): void {
-    if (this.audioContext) {
-      this.audioContext.close().catch(() => {})
-      this.audioContext = null
+    if (this.sourceNode) {
+      try { this.sourceNode.disconnect() } catch {}
+      this.sourceNode = null
     }
-    this.analyserNode = null
-    this.gainNode = null
+    // DON'T close AudioContext here -- it gets reused across recordings
+  }
+
+  // Full teardown: closes AudioContext and releases everything.
+  // Call this only on app shutdown, not between recordings.
+  destroy(): void {
+    this.cleanup()
+    // Explicitly disconnect and null all nodes
+    if (this.gainNode) {
+      try { this.gainNode.disconnect() } catch {}
+      this.gainNode = null
+    }
+    if (this.analyserNode) {
+      try { this.analyserNode.disconnect() } catch {}
+      this.analyserNode = null
+    }
+    if (this.audioContext && this.audioContext.state !== 'closed') {
+      this.audioContext.close().catch(() => {})
+      console.log('[Prattle] AudioContext closed (full destroy)')
+    }
+    this.audioContext = null
   }
 
   private getSupportedMimeType(): string {

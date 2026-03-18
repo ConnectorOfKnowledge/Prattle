@@ -68,6 +68,11 @@ export default function MainView() {
   const startPromiseRef = useRef<Promise<void> | null>(null)
   const isStreamingRef = useRef(false)
 
+  // Recording session ID -- monotonically increasing counter.
+  // Used to prevent stale callbacks and finally blocks from clobbering
+  // a newer recording session's state.
+  const recordingSessionId = useRef(0)
+
   const MIN_RECORDING_MS = 400
 
   const isRecording = recordingState === 'recording' || recordingState === 'rewrite_recording'
@@ -148,24 +153,73 @@ export default function MainView() {
   const startRecordingInternal = useCallback(async (rewrite: boolean) => {
     if (!settings) return
 
+    // Strict state guard: only start from idle.
+    // If the previous recording is still processing, we must wait.
+    // Without this, the second recording's stop() gets blocked by isProcessingRef
+    // from the first recording, causing the second Deepgram session to never close
+    // and its transcript to accumulate across sessions.
+    const currentState = useAppStore.getState().recordingState
+    if (currentState !== 'idle') {
+      console.warn(`[Prattle] startRecording rejected -- state is ${currentState}`)
+      return
+    }
+
+    // Assign a session ID for this recording. stopRecordingInternal captures
+    // this value and only resets state if it still matches (prevents the finally
+    // block from clobbering a newer recording session).
+    const sessionId = ++recordingSessionId.current
+
+    // Clear previous text BEFORE starting -- user should see immediate feedback
+    if (!rewrite) {
+      setEditedText('')
+      setRawText('')
+      setProcessedText('')
+    }
+
     startPromiseRef.current = (async () => {
       try {
+        // Step 1: Start recording IMMEDIATELY -- getUserMedia grabs the mic
         await speechService.startRecording()
         speechService.setMicGain(settings.micGain ?? 100)
 
         isStreamingRef.current = false
+        recordingStartTime.current = Date.now()
+
+        // Clear text again INSIDE the successful path (the outer clear at line 170
+        // might have been overwritten by a late callback from the previous session)
+        if (!rewrite) {
+          setEditedText('')
+          setRawText('')
+          setProcessedText('')
+        }
+
+        // Show recording state RIGHT AWAY
+        setRecordingState(rewrite ? 'rewrite_recording' : 'recording')
+        setStatusMessage(rewrite ? 'Tell me how to change it...' : 'Listening...')
 
         if (!rewrite) {
           try {
-            const streamToken = await getStreamToken()
+            // Step 2: Tell DeepgramStreamService to start buffering audio BEFORE
+            // the WebSocket exists. This is the critical fix for "garbled first words":
+            // audio buffers from this moment, even while getStreamToken() is in-flight.
+            deepgramStreamService.prepareForAudio()
+
+            // Step 3: Start PCM capture -- audio flows to sendAudio() which buffers it
             const sampleRate = speechService.startPcmCapture((buffer) => {
               deepgramStreamService.sendAudio(buffer)
             })
+
+            // Step 4: Network calls (token + WebSocket connect) happen AFTER audio is flowing.
+            // The pre-connect buffer captures everything and replays on WebSocket open.
+            const streamToken = await getStreamToken()
 
             await deepgramStreamService.start(
               streamToken,
               sampleRate,
               (text, _isFinal) => {
+                // Session guard on the callback: only update UI if this is still
+                // the current recording session
+                if (recordingSessionId.current !== sessionId) return
                 setEditedText(text)
               },
               (error) => {
@@ -185,12 +239,9 @@ export default function MainView() {
             console.warn('[Prattle] Streaming failed, will use batch:', e?.message || e)
             speechService.stopPcmCapture()
             isStreamingRef.current = false
+            setStatusMessage('Live preview unavailable -- will transcribe when you stop')
           }
         }
-
-        recordingStartTime.current = Date.now()
-        setRecordingState(rewrite ? 'rewrite_recording' : 'recording')
-        setStatusMessage(rewrite ? 'Tell me how to change it...' : 'Listening...')
       } catch (error: any) {
         setStatusMessage(`Error: ${error.message}`)
         setRecordingState('idle')
@@ -202,8 +253,18 @@ export default function MainView() {
   const stopRecordingInternal = useCallback(async () => {
     if (!settings) return
 
+    // Capture session ID at stop time -- the finally block checks this
+    // to avoid clobbering a newer recording session
+    const sessionId = recordingSessionId.current
+
     if (startPromiseRef.current) {
-      try { await startPromiseRef.current } catch {}
+      // Wait for start to finish, but with a timeout to prevent hanging
+      try {
+        await Promise.race([
+          startPromiseRef.current,
+          new Promise(r => setTimeout(r, 10000)) // 10s max wait
+        ])
+      } catch {}
       startPromiseRef.current = null
     }
 
@@ -236,6 +297,13 @@ export default function MainView() {
       return
     }
 
+    // IMMEDIATELY stop sending audio to Deepgram. This is the fix for
+    // "picks up ambient sounds after releasing the key" -- previously the PCM
+    // processor kept running during the entire stop/processing sequence.
+    if (isStreamingRef.current) {
+      speechService.stopPcmCapture()
+    }
+
     const audioStats = speechService.getAudioStats()
     const recordingDurationMs = Date.now() - recordingStartTime.current
 
@@ -248,7 +316,7 @@ export default function MainView() {
       let transcription = ''
 
       if (isStreamingRef.current) {
-        speechService.stopPcmCapture()
+        // PCM capture already stopped above -- just stop recording and get transcript
         await speechService.stopRecording()
         transcription = await deepgramStreamService.stop()
         isStreamingRef.current = false
@@ -368,9 +436,14 @@ export default function MainView() {
         deepgramStreamService.abort()
         isStreamingRef.current = false
       }
-      setRecordingState('idle')
+      // Only reset state if we're still the active recording session.
+      // Without this check, a rapid start-stop-start sequence causes the
+      // first stop's finally block to clobber the second recording's state.
+      if (recordingSessionId.current === sessionId) {
+        setRecordingState('idle')
+        if (window.electronAPI) window.electronAPI.hideIndicator?.()
+      }
       isProcessingRef.current = false
-      if (window.electronAPI) window.electronAPI.hideIndicator?.()
     }
   }, [settings, dictionary, learnedPatterns])
 
@@ -382,16 +455,43 @@ export default function MainView() {
   useEffect(() => {
     if (!window.electronAPI?.onRecordingCommand) return
 
-    const cleanup = window.electronAPI.onRecordingCommand((command: string) => {
+    const cleanup = window.electronAPI.onRecordingCommand(async (command: string) => {
       switch (command) {
         case 'start':
-        case 'start-handsfree':
+        case 'start-handsfree': {
+          // If still processing the previous recording, wait for it to finish
+          // before starting a new one. This prevents overlapping sessions where
+          // the second recording's stop() gets blocked by isProcessingRef.
+          if (isProcessingRef.current) {
+            console.log('[Prattle] Waiting for previous processing to complete before starting...')
+            const maxWait = 50 // 50 * 100ms = 5s max
+            for (let i = 0; i < maxWait && isProcessingRef.current; i++) {
+              await new Promise(r => setTimeout(r, 100))
+            }
+          }
           isHotkeyTriggered.current = true
           startRecordingRef.current(false)
           break
-        case 'start-rewrite':
+        }
+        case 'start-rewrite': {
+          if (isProcessingRef.current) {
+            const maxWait = 50
+            for (let i = 0; i < maxWait && isProcessingRef.current; i++) {
+              await new Promise(r => setTimeout(r, 100))
+            }
+          }
           isHotkeyTriggered.current = true
           startRecordingRef.current(true)
+          break
+        }
+        case 'stop-capture':
+          // Immediately stop sending audio to Deepgram (key released).
+          // This prevents ambient noise capture during the 250ms double-tap delay.
+          // The full 'stop' command (which triggers transcription) comes later.
+          if (isStreamingRef.current) {
+            speechService.stopPcmCapture()
+            console.log('[Prattle] PCM capture stopped immediately on key release')
+          }
           break
         case 'stop':
           stopRecordingRef.current()
