@@ -410,7 +410,7 @@ export default function MainView() {
         }
 
         setProcessedText(finalText)
-        setEditedText(finalText)
+        setEditedText(finalText + ' ')
         setLastCommittedText(finalText)
         setTrainingSaved(false)
 
