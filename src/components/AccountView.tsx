@@ -64,6 +64,7 @@ export default function AccountView() {
     )
   }
 
+  const isFamily = user.plan === 'family' || user.accessType === 'family'
   const isActive = user.subscriptionStatus === 'active'
   const isPastDue = user.subscriptionStatus === 'past_due'
 
@@ -80,9 +81,11 @@ export default function AccountView() {
           <div>
             <div className="text-sm font-medium text-cd-text">{user.email}</div>
             <div className="text-xs text-cd-subtle">
-              {isActive
-                ? `${user.plan === 'annual' ? 'Annual' : 'Monthly'} plan`
-                : 'Free tier'}
+              {isFamily
+                ? 'Family plan'
+                : isActive
+                  ? `${user.plan === 'annual' ? 'Annual' : 'Monthly'} plan`
+                  : 'Free tier'}
             </div>
           </div>
         </div>
@@ -95,7 +98,21 @@ export default function AccountView() {
           Subscription
         </h3>
 
-        {isActive ? (
+        {isFamily ? (
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-cd-text">Status</span>
+              <span className="text-sm font-medium text-green-400">Active</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-cd-text">Plan</span>
+              <span className="text-sm font-medium text-cd-text">Family</span>
+            </div>
+            <p className="text-xs text-cd-subtle bg-cd-bg rounded-lg px-3 py-2">
+              You have full access to Prattle through the family plan. No subscription management needed.
+            </p>
+          </div>
+        ) : isActive ? (
           <div className="space-y-3">
             <div className="flex items-center justify-between">
               <span className="text-sm text-cd-text">Status</span>
