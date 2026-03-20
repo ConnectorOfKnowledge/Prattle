@@ -458,6 +458,11 @@ function showIndicator() {
     // The `did-finish-load` handler in createIndicatorWindow checks
     // indicatorShouldShow and calls .show() when appropriate.
   } else {
+    // Re-assert alwaysOnTop at the highest level each time we show.
+    // Without this, other always-on-top windows (fullscreen apps, screen
+    // recorders, etc.) can steal the z-order and the indicator disappears
+    // even though it is technically "visible".
+    indicatorWindow.setAlwaysOnTop(true, 'screen-saver')
     indicatorWindow.show()
   }
 }
