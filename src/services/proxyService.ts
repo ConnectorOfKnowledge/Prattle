@@ -1,7 +1,7 @@
 import { getAccessToken } from './authService'
 import { fetchWithTimeout } from '../utils/fetchWithTimeout'
 
-const PROXY_BASE = 'https://voicetype-web.vercel.app'
+const PROXY_BASE = 'https://prattle.app'
 
 // Convert Blob to base64 string
 async function blobToBase64(blob: Blob): Promise<string> {

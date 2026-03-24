@@ -137,7 +137,7 @@ export interface SubscriptionInfo {
   cancelAtPeriodEnd?: boolean
 }
 
-const PROXY_BASE = 'https://voicetype-web.vercel.app'
+const PROXY_BASE = 'https://prattle.app'
 
 export interface SubscriptionResponse extends SubscriptionInfo {
   accessType?: 'subscription' | 'trial' | 'family' | 'expired'

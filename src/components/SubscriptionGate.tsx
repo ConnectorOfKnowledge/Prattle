@@ -4,7 +4,7 @@ import { HiLockClosed } from 'react-icons/hi2'
 import { getAccessToken } from '../services/authService'
 import { fetchWithTimeout } from '../utils/fetchWithTimeout'
 
-const PROXY_BASE = 'https://voicetype-web.vercel.app'
+const PROXY_BASE = 'https://prattle.app'
 
 export default function SubscriptionGate({ children }: { children: React.ReactNode }) {
   const { user, refreshSubscription } = useAppStore()
@@ -84,7 +84,7 @@ export default function SubscriptionGate({ children }: { children: React.ReactNo
         </div>
         <button
           onClick={() => {
-            window.electronAPI.openExternalUrl('https://voicetype-web.vercel.app/#pricing')
+            window.electronAPI.openExternalUrl('https://prattle.app/#pricing')
           }}
           className="px-6 py-3 rounded-xl text-sm font-medium bg-cd-accent hover:bg-cd-accent/80 text-white transition-all"
         >
