@@ -120,6 +120,34 @@ export async function processTextViaProxy(
 }
 
 /**
+ * Submit a response quality rating (1-5 stars) with the raw input and processed output.
+ * Failures are swallowed -- a failed rating submit should never surface an error to the user.
+ */
+export async function submitRating(
+  rawInput: string,
+  processedOutput: string,
+  rating: number,
+  mode?: string,
+): Promise<void> {
+  try {
+    const token = await getAccessToken()
+    if (!token) return
+
+    await fetchWithTimeout(`${PROXY_BASE}/api/ratings`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ raw_input: rawInput, processed_output: processedOutput, rating, mode }),
+      timeout: 10000,
+    })
+  } catch {
+    // Intentionally swallowed -- rating submission is best-effort
+  }
+}
+
+/**
  * Multi-turn chat via the proxy server
  */
 export async function chatViaProxy(

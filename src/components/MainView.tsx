@@ -3,7 +3,7 @@ import { useAppStore } from '../stores/appStore'
 import { speechService, isHallucinatedPhrase } from '../services/speechService'
 import { deepgramStreamService } from '../services/deepgramStreamService'
 import { analyzeEdits, buildProcessPrompt, buildRewritePrompt } from '../services/llmService'
-import { transcribeViaProxy, processTextViaProxy, getStreamToken } from '../services/proxyService'
+import { transcribeViaProxy, processTextViaProxy, getStreamToken, submitRating } from '../services/proxyService'
 import { DICTATION_MODES } from '../constants/modes'
 import type { RecordingState } from '../constants/modes'
 import {
@@ -60,6 +60,8 @@ export default function MainView() {
   const [audioData, setAudioData] = useState<number[]>([])
   const [trainingMode, setTrainingMode] = useState(false)
   const [trainingSaved, setTrainingSaved] = useState(false)
+  const [pendingRating, setPendingRating] = useState<number>(0)
+  const [ratingSubmitted, setRatingSubmitted] = useState(false)
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const isHotkeyTriggered = useRef(false)
@@ -169,11 +171,13 @@ export default function MainView() {
     // block from clobbering a newer recording session).
     const sessionId = ++recordingSessionId.current
 
-    // Clear previous text BEFORE starting -- user should see immediate feedback
+    // Clear previous text and rating state BEFORE starting
     if (!rewrite) {
       setEditedText('')
       setRawText('')
       setProcessedText('')
+      setPendingRating(0)
+      setRatingSubmitted(false)
     }
 
     startPromiseRef.current = (async () => {
@@ -672,6 +676,13 @@ export default function MainView() {
     }
   }, [processedText, editedText, settings, learnedPatterns, dictionary])
 
+  const handleRatingSubmit = useCallback(async () => {
+    if (pendingRating < 1 || !rawText || !processedText) return
+    setRatingSubmitted(true)
+    const modeId = settings ? DICTATION_MODES[settings.currentModeIndex]?.id : undefined
+    await submitRating(rawText, processedText, pendingRating, modeId)
+  }, [pendingRating, rawText, processedText, settings])
+
   const handleCycleMode = useCallback(async () => {
     if (!settings) return
     const nextIndex = (settings.currentModeIndex + 1) % DICTATION_MODES.length
@@ -863,6 +874,41 @@ export default function MainView() {
           <div className="p-2 bg-cd-card rounded-xl text-xs border border-white/5">
             <span className="text-amber-400 font-medium">AI gave you: </span>
             <span className="text-cd-subtle">{processedText}</span>
+          </div>
+        )}
+
+        {/* Star rating -- shown once a processed result is ready */}
+        {!trainingMode && processedText && !isRecording && !isProcessing && (
+          <div className="flex items-center gap-2 px-1">
+            <span className="text-xs text-cd-subtle shrink-0">Rate this:</span>
+            <div className="flex gap-0.5">
+              {[1, 2, 3, 4, 5].map((star) => (
+                <button
+                  key={star}
+                  onClick={() => { if (!ratingSubmitted) setPendingRating(star) }}
+                  disabled={ratingSubmitted}
+                  className={`text-lg leading-none transition-colors ${
+                    ratingSubmitted
+                      ? star <= pendingRating ? 'text-amber-400' : 'text-white/10'
+                      : star <= pendingRating ? 'text-amber-400 hover:text-amber-300' : 'text-white/20 hover:text-amber-300'
+                  }`}
+                  title={`Rate ${star} star${star !== 1 ? 's' : ''}`}
+                >
+                  ★
+                </button>
+              ))}
+            </div>
+            {pendingRating > 0 && !ratingSubmitted && (
+              <button
+                onClick={handleRatingSubmit}
+                className="text-xs px-2 py-0.5 rounded-lg bg-cd-accent hover:bg-cd-accent/80 text-white transition-colors"
+              >
+                Submit
+              </button>
+            )}
+            {ratingSubmitted && (
+              <span className="text-xs text-green-400">Thanks!</span>
+            )}
           </div>
         )}
 
