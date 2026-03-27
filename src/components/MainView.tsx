@@ -223,6 +223,17 @@ export default function MainView() {
                 setEditedText(text)
               },
               (error) => {
+                if (recordingSessionId.current !== sessionId) return
+                // STREAM_CLOSED means Deepgram dropped the connection mid-recording
+                // (e.g. their ~5min timeout). The transcript captured so far is still
+                // valid -- just stop streaming and let the user know.
+                if (error.message?.startsWith('STREAM_CLOSED:')) {
+                  console.warn('[Prattle] Deepgram stream closed mid-recording -- keeping transcript so far')
+                  isStreamingRef.current = false
+                  speechService.stopPcmCapture()
+                  setStatusMessage('Stream disconnected -- transcript captured so far is shown. Stop when ready.')
+                  return
+                }
                 console.error('[Prattle] Deepgram stream error:', error)
                 isStreamingRef.current = false
                 speechService.stopPcmCapture()
@@ -855,15 +866,13 @@ export default function MainView() {
           </div>
         )}
 
-        {!trainingMode && rawText && processedText && rawText !== processedText && (
-          <details className="group">
-            <summary className="text-xs text-cd-subtle cursor-pointer hover:text-cd-text transition-colors">
-              View original transcription
-            </summary>
-            <div className="mt-1 p-2 bg-cd-card rounded-xl text-xs text-cd-subtle">
-              {rawText}
+        {!trainingMode && rawText && (
+          <div className="p-2 bg-cd-card rounded-xl border border-white/5">
+            <div className="flex items-center gap-1.5 mb-1">
+              <span className="text-xs font-medium text-cd-subtle">Original transcript</span>
             </div>
-          </details>
+            <p className="text-xs text-cd-subtle/80 leading-relaxed select-text">{rawText}</p>
+          </div>
         )}
       </div>
     </div>

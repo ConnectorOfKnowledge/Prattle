@@ -114,14 +114,16 @@ export class SpeechService {
       this.startEnergyTracking()
 
       // Clearable safety timeout (prevents orphaned mic streams from killing the driver)
+      // 30 minutes -- long enough for extended rambling sessions, short enough to prevent
+      // truly orphaned streams from holding the mic indefinitely
       if (this.safetyTimeout) clearTimeout(this.safetyTimeout)
       this.safetyTimeout = setTimeout(() => {
         this.safetyTimeout = null
         if (this.activeRecordingId === recordingId && this.stream) {
-          console.error('[Prattle] Recording safety timeout (5 min) -- forcing cleanup')
+          console.error('[Prattle] Recording safety timeout (30 min) -- forcing cleanup')
           this.cleanup()
         }
-      }, 5 * 60 * 1000)
+      }, 30 * 60 * 1000)
     } catch (error: any) {
       // CRITICAL: clean up any partially-acquired resources on failure.
       // Without this, a failed startRecording leaves the mic stream open.

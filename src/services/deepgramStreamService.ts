@@ -191,6 +191,20 @@ export class DeepgramStreamService {
 
       ws.onclose = (event) => {
         console.log(`[Prattle] Deepgram WebSocket closed (session ${currentSession}, code: ${event.code})`)
+
+        // Detect unexpected close during an active recording session (e.g. Deepgram timeout ~5min).
+        // Code 1000 = clean close initiated by us; anything else = unexpected.
+        // When the connection drops mid-recording, notify via onError so the UI can
+        // inform the user that the stream ended -- but preserve any transcript already captured.
+        if (this.sessionId === currentSession && this.wsReady && event.code !== 1000) {
+          console.warn(`[Prattle] Deepgram stream closed unexpectedly (code ${event.code}) -- transcript preserved so far`)
+          this.wsReady = false
+          // Notify the caller so they can show an appropriate message
+          if (this.onError) {
+            this.onError(new Error(`STREAM_CLOSED:${event.code}`))
+          }
+        }
+
         // Only resolve the stop() promise if this is the current session's close
         if (this.sessionId === currentSession && this.closeResolve) {
           this.closeResolve()
