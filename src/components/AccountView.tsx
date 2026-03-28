@@ -6,21 +6,30 @@ import { HiUser, HiCreditCard, HiArrowRightOnRectangle, HiSparkles } from 'react
 export default function AccountView() {
   const { user, setUser, setCurrentView } = useAppStore()
   const [loading, setLoading] = useState('')
+  const [error, setError] = useState('')
 
   const handleUpgrade = async (plan: 'monthly' | 'annual') => {
     setLoading(plan)
+    setError('')
     try {
-      // TODO: Replace with actual Stripe price IDs
+      // FIXME: Replace with actual Stripe price IDs before enabling payments
       const priceId = plan === 'monthly'
         ? 'price_MONTHLY_TODO'
         : 'price_ANNUAL_TODO'
+
+      if (priceId.includes('TODO')) {
+        setError('Subscription setup in progress. Please try again later.')
+        setLoading('')
+        return
+      }
 
       const url = await getCheckoutUrl(priceId)
       if (url) {
         await window.electronAPI.openExternalUrl(url)
       }
-    } catch (err: any) {
-      console.error('Checkout error:', err)
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'An unexpected error occurred'
+      setError(`Unable to start checkout: ${message}`)
     } finally {
       setLoading('')
     }
@@ -28,25 +37,29 @@ export default function AccountView() {
 
   const handleManageSubscription = async () => {
     setLoading('portal')
+    setError('')
     try {
       const url = await getPortalUrl()
       if (url) {
         await window.electronAPI.openExternalUrl(url)
       }
-    } catch (err: any) {
-      console.error('Portal error:', err)
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'An unexpected error occurred'
+      setError(`Unable to open subscription portal: ${message}`)
     } finally {
       setLoading('')
     }
   }
 
   const handleSignOut = async () => {
+    setError('')
     try {
       await signOut()
       setUser(null)
       setCurrentView('auth')
-    } catch (err: any) {
-      console.error('Sign out error:', err)
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'An unexpected error occurred'
+      setError(`Sign out failed: ${message}`)
     }
   }
 
@@ -56,7 +69,7 @@ export default function AccountView() {
         <p className="text-cd-subtle">You're using Prattle in free mode.</p>
         <button
           onClick={() => setCurrentView('auth')}
-          className="px-6 py-2.5 rounded-xl text-sm font-medium bg-cd-accent text-white hover:bg-cd-accent/80 transition-all"
+          className="btn-primary"
         >
           Sign In or Create Account
         </button>
@@ -72,8 +85,15 @@ export default function AccountView() {
     <div className="p-4 max-w-2xl mx-auto space-y-4 slide-in">
       <h2 className="text-lg font-semibold text-cd-text">Account</h2>
 
+      {/* Error display */}
+      {error && (
+        <div className="bg-red-900/20 border border-red-700/30 rounded-xl px-4 py-3">
+          <p className="text-sm text-red-400">{error}</p>
+        </div>
+      )}
+
       {/* User info */}
-      <div className="bg-cd-card rounded-2xl border border-white/5 p-5">
+      <div className="card">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-full bg-cd-accent/20 flex items-center justify-center">
             <HiUser className="w-5 h-5 text-cd-accent" />
@@ -92,7 +112,7 @@ export default function AccountView() {
       </div>
 
       {/* Subscription status */}
-      <div className="bg-cd-card rounded-2xl border border-white/5 p-5">
+      <div className="card">
         <h3 className="font-medium text-cd-text mb-3 flex items-center gap-2">
           <HiCreditCard className="w-4 h-4" />
           Subscription
@@ -142,7 +162,7 @@ export default function AccountView() {
             <button
               onClick={handleManageSubscription}
               disabled={loading === 'portal'}
-              className="w-full py-2.5 rounded-xl text-sm font-medium bg-cd-bg border border-white/10 text-cd-text hover:bg-white/10 transition-all disabled:opacity-50"
+              className="btn-secondary w-full"
             >
               {loading === 'portal' ? 'Opening...' : 'Manage Subscription'}
             </button>
@@ -155,7 +175,7 @@ export default function AccountView() {
             <button
               onClick={handleManageSubscription}
               disabled={loading === 'portal'}
-              className="w-full py-2.5 rounded-xl text-sm font-medium bg-amber-500 text-white hover:bg-amber-600 transition-all disabled:opacity-50"
+              className="w-full py-2.5 rounded-xl text-sm font-medium bg-amber-500 text-white hover:bg-amber-600 transition-all disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-cd-accent/50"
             >
               {loading === 'portal' ? 'Opening...' : 'Update Payment'}
             </button>
@@ -163,14 +183,14 @@ export default function AccountView() {
         ) : (
           <div className="space-y-3">
             <p className="text-sm text-cd-subtle">
-              Upgrade to get rid of API key management. We handle everything — just speak and type.
+              Upgrade to get rid of API key management. We handle everything -- just speak and type.
             </p>
 
             <div className="grid grid-cols-2 gap-3">
               <button
                 onClick={() => handleUpgrade('monthly')}
                 disabled={!!loading}
-                className="flex flex-col items-center gap-1 p-4 rounded-xl border border-white/10 hover:border-cd-accent/50 hover:bg-cd-accent/5 transition-all disabled:opacity-50"
+                className="flex flex-col items-center gap-1 p-4 rounded-xl border border-white/10 hover:border-cd-accent/50 hover:bg-cd-accent/5 transition-all disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-cd-accent/50"
               >
                 <span className="text-lg font-bold text-cd-text">$9.95</span>
                 <span className="text-xs text-cd-subtle">per month</span>
@@ -180,7 +200,7 @@ export default function AccountView() {
               <button
                 onClick={() => handleUpgrade('annual')}
                 disabled={!!loading}
-                className="flex flex-col items-center gap-1 p-4 rounded-xl border border-cd-accent/50 bg-cd-accent/5 hover:bg-cd-accent/10 transition-all disabled:opacity-50 relative"
+                className="flex flex-col items-center gap-1 p-4 rounded-xl border border-cd-accent/50 bg-cd-accent/5 hover:bg-cd-accent/10 transition-all disabled:opacity-50 relative focus-visible:ring-2 focus-visible:ring-cd-accent/50"
               >
                 <div className="absolute -top-2 right-2 px-2 py-0.5 rounded-full bg-cd-accent text-white text-[10px] font-bold">
                   SAVE 42%
@@ -200,10 +220,10 @@ export default function AccountView() {
       </div>
 
       {/* Sign out */}
-      <div className="bg-cd-card rounded-2xl border border-white/5 p-5">
+      <div className="card">
         <button
           onClick={handleSignOut}
-          className="flex items-center gap-2 text-sm text-red-400 hover:text-red-300 transition-colors"
+          className="flex items-center gap-2 text-sm text-red-400 hover:text-red-300 transition-colors focus-visible:ring-2 focus-visible:ring-cd-accent/50 rounded-lg px-1"
         >
           <HiArrowRightOnRectangle className="w-4 h-4" />
           Sign Out

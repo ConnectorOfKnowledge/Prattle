@@ -1,46 +1,11 @@
-// Speech-to-text service supporting multiple providers
-import { fetchWithTimeout } from '../utils/fetchWithTimeout'
+// Speech-to-text service -- audio capture, visualization, and energy tracking.
+// Transcription provider implementations live in transcriptionProviders.ts.
 
-// Known hallucination phrases that speech models produce from silence/noise.
-// Whisper in particular loves to output these when given near-empty audio.
-// Matched case-insensitively after trimming punctuation.
-const HALLUCINATION_BLOCKLIST = [
-  'the quick brown fox jumps over the lazy dog',
-  'the quick brown fox',
-  'thank you for watching',
-  'thanks for watching',
-  'subscribe to my channel',
-  'please subscribe',
-  'like and subscribe',
-  'thank you for listening',
-  'thanks for listening',
-  'see you next time',
-  'see you in the next video',
-  'bye bye',
-  'goodbye',
-  'you',
-  'bye',
-  'i\'m sorry',
-  'okay',
-  'so',
-  'um',
-  'uh',
-  'hmm',
-  'mhm',
-  'yeah',
-  'oh',
-  'ah',
-  'huh',
-]
-
-/**
- * Check if transcription is a known hallucination phrase.
- * Strips punctuation and compares case-insensitively.
- */
-function isHallucinatedPhrase(text: string): boolean {
-  const normalized = text.toLowerCase().replace(/[.,!?;:'"()\[\]{}\-—…]/g, '').trim()
-  return HALLUCINATION_BLOCKLIST.includes(normalized)
-}
+// Named constants for magic numbers
+const MEDIA_RECORDER_TIMESLICE_MS = 100
+const SAFETY_TIMEOUT_MS = 30 * 60 * 1000  // 30 minutes
+const STOP_RECORDING_TIMEOUT_MS = 5000
+const PCM_BUFFER_SIZE = 4096
 
 export class SpeechService {
   private mediaRecorder: MediaRecorder | null = null
@@ -52,7 +17,7 @@ export class SpeechService {
   private sourceNode: MediaStreamAudioSourceNode | null = null
   private visualizationStream: MediaStream | null = null
 
-  // Audio energy tracking — used to detect silence/noise-only recordings
+  // Audio energy tracking -- used to detect silence/noise-only recordings
   private energySamples: number[] = []
   private energyTrackingInterval: ReturnType<typeof setInterval> | null = null
 
@@ -77,9 +42,16 @@ export class SpeechService {
         this.cleanup()
       }
 
-      // Use the simplest possible constraint -- { audio: true } is the most
-      // compatible call and lets the browser pick the best device and settings.
-      this.stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      // Disable all automatic audio processing so Chromium doesn't fight with
+      // the user's Windows mic volume setting. Without these constraints,
+      // autoGainControl silently resets system mic volume to random levels.
+      this.stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          autoGainControl: false,
+          noiseSuppression: false,
+          echoCancellation: false,
+        },
+      })
 
       this.audioChunks = []
       this.mediaRecorder = new MediaRecorder(this.stream, {
@@ -105,7 +77,7 @@ export class SpeechService {
       // The MediaRecorder works directly off the stream and doesn't need the
       // AudioContext graph. Setting up the analyser takes 50-150ms (AudioContext
       // init, node creation) and every ms of delay means lost words.
-      this.mediaRecorder.start(100)
+      this.mediaRecorder.start(MEDIA_RECORDER_TIMESLICE_MS)
 
       // Set up audio visualization AFTER recording starts
       this.setupAnalyser(this.stream)
@@ -123,13 +95,15 @@ export class SpeechService {
           console.error('[Prattle] Recording safety timeout (30 min) -- forcing cleanup')
           this.cleanup()
         }
-      }, 30 * 60 * 1000)
-    } catch (error: any) {
+      }, SAFETY_TIMEOUT_MS)
+    } catch (error: unknown) {
       // CRITICAL: clean up any partially-acquired resources on failure.
       // Without this, a failed startRecording leaves the mic stream open.
       this.cleanup()
 
-      console.error('[Prattle] getUserMedia failed:', error?.name, error?.message)
+      const name = error instanceof Error ? error.name : 'UnknownError'
+      const message = error instanceof Error ? error.message : String(error)
+      console.error('[Prattle] getUserMedia failed:', name, message)
 
       // Log device info for diagnostics
       try {
@@ -139,14 +113,14 @@ export class SpeechService {
           mics.map(d => ({ label: d.label || '(unlabeled)', id: d.deviceId.slice(0, 8) })))
       } catch (_) { /* ignore enumeration errors */ }
 
-      if (error?.name === 'NotAllowedError') {
+      if (name === 'NotAllowedError') {
         throw new Error('Microphone permission denied — open Windows Settings > Privacy & Security > Microphone and enable "Let desktop apps access your microphone"')
-      } else if (error?.name === 'NotFoundError' || error?.name === 'DevicesNotFoundError') {
+      } else if (name === 'NotFoundError' || name === 'DevicesNotFoundError') {
         throw new Error('No microphone found — check that a mic is connected and enabled in Windows Sound Settings (right-click speaker icon > Sound settings > Input)')
-      } else if (error?.name === 'NotReadableError' || error?.name === 'AbortError') {
+      } else if (name === 'NotReadableError' || name === 'AbortError') {
         throw new Error('Microphone is busy — close other apps using the mic and try again')
       } else {
-        throw new Error(`Microphone error (${error?.name}): ${error?.message || 'unknown'}`)
+        throw new Error(`Microphone error (${name}): ${message || 'unknown'}`)
       }
     }
   }
@@ -176,7 +150,6 @@ export class SpeechService {
       if (this.stream) {
         this.stream.getTracks().forEach(track => {
           track.stop()
-          console.log(`[Prattle] Stopped mic track immediately: ${track.label}`)
         })
       }
 
@@ -186,7 +159,7 @@ export class SpeechService {
         const audioBlob = new Blob(this.audioChunks, { type: this.getSupportedMimeType() })
         this.cleanup()
         resolve(audioBlob)
-      }, 5000)
+      }, STOP_RECORDING_TIMEOUT_MS)
 
       this.mediaRecorder.onstop = () => {
         clearTimeout(timeout)
@@ -214,14 +187,13 @@ export class SpeechService {
     try {
       // Disconnect previous source if switching streams
       if (this.sourceNode) {
-        try { this.sourceNode.disconnect() } catch {}
+        try { this.sourceNode.disconnect() } catch { /* already disconnected */ }
         this.sourceNode = null
       }
 
       // Reuse existing AudioContext if it's still alive
       if (!this.audioContext || this.audioContext.state === 'closed') {
         this.audioContext = new AudioContext()
-        console.log('[Prattle] Created new AudioContext (sampleRate:', this.audioContext.sampleRate, ')')
       }
 
       // Resume AudioContext if suspended (happens in hidden/background windows)
@@ -248,8 +220,8 @@ export class SpeechService {
       // cleanup() disconnects these between recordings; we re-establish here
       this.sourceNode.connect(this.gainNode)
       this.gainNode.connect(this.analyserNode)
-    } catch (error) {
-      console.error('Failed to set up audio analyser:', error)
+    } catch (error: unknown) {
+      console.error('[Prattle] Failed to set up audio analyser:', error)
     }
   }
 
@@ -268,8 +240,8 @@ export class SpeechService {
     this.onPcmData = callback
 
     // ScriptProcessorNode taps into the audio chain to get raw samples.
-    // 4096 samples per buffer is a good balance between latency and overhead.
-    this.pcmProcessor = this.audioContext.createScriptProcessor(4096, 1, 1)
+    // PCM_BUFFER_SIZE samples per buffer is a good balance between latency and overhead.
+    this.pcmProcessor = this.audioContext.createScriptProcessor(PCM_BUFFER_SIZE, 1, 1)
     this.pcmProcessor.onaudioprocess = (event) => {
       if (!this.onPcmData) return
 
@@ -285,9 +257,15 @@ export class SpeechService {
       this.onPcmData(int16.buffer)
     }
 
-    // Insert into chain: analyser -> pcmProcessor -> destination (required for it to run)
+    // Insert into chain: analyser -> pcmProcessor -> silentNode -> destination
+    // ScriptProcessorNode requires connection to destination to process audio,
+    // but we route through a silent GainNode (gain = 0) to avoid playing mic
+    // input through speakers.
+    const silentNode = this.audioContext.createGain()
+    silentNode.gain.value = 0
     this.analyserNode.connect(this.pcmProcessor)
-    this.pcmProcessor.connect(this.audioContext.destination)
+    this.pcmProcessor.connect(silentNode)
+    silentNode.connect(this.audioContext.destination)
 
     return this.audioContext.sampleRate
   }
@@ -351,7 +329,7 @@ export class SpeechService {
     const avg = this.energySamples.reduce((a, b) => a + b, 0) / this.energySamples.length
 
     // Speech threshold: average RMS > 0.02 and peak > 0.05
-    // These are conservative — even quiet speech should clear this
+    // These are conservative -- even quiet speech should clear this
     const speechDetected = avg > 0.02 && peak > 0.05
 
     return { peakEnergy: peak, avgEnergy: avg, speechDetected }
@@ -361,16 +339,22 @@ export class SpeechService {
   async startVisualization(): Promise<void> {
     if (this.analyserNode) return
     try {
-      // Reuse the recording stream if one is already active — opening a second
+      // Reuse the recording stream if one is already active -- opening a second
       // getUserMedia stream can lock the mic on some Windows audio drivers.
       if (this.stream) {
         this.setupAnalyser(this.stream)
       } else {
-        this.visualizationStream = await navigator.mediaDevices.getUserMedia({ audio: true })
+        this.visualizationStream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            autoGainControl: false,
+            noiseSuppression: false,
+            echoCancellation: false,
+          },
+        })
         this.setupAnalyser(this.visualizationStream)
       }
-    } catch (error) {
-      console.error('Failed to start visualization:', error)
+    } catch (error: unknown) {
+      console.error('[Prattle] Failed to start visualization:', error)
     }
   }
 
@@ -382,7 +366,7 @@ export class SpeechService {
     }
     // Only disconnect source, don't destroy AudioContext
     if (this.sourceNode) {
-      try { this.sourceNode.disconnect() } catch {}
+      try { this.sourceNode.disconnect() } catch { /* already disconnected */ }
       this.sourceNode = null
     }
   }
@@ -407,15 +391,15 @@ export class SpeechService {
     // table alive even after the MediaStream tracks are stopped. Over hundreds
     // of recording cycles, this exhausts the driver and it crashes.
     if (this.sourceNode) {
-      try { this.sourceNode.disconnect() } catch {}
+      try { this.sourceNode.disconnect() } catch { /* already disconnected */ }
       this.sourceNode = null
     }
     if (this.gainNode) {
-      try { this.gainNode.disconnect() } catch {}
+      try { this.gainNode.disconnect() } catch { /* already disconnected */ }
       // Don't null -- will be reconnected in next setupAnalyser()
     }
     if (this.analyserNode) {
-      try { this.analyserNode.disconnect() } catch {}
+      try { this.analyserNode.disconnect() } catch { /* already disconnected */ }
       // Don't null -- will be reconnected in next setupAnalyser()
     }
 
@@ -438,31 +422,21 @@ export class SpeechService {
     this.audioChunks = []
   }
 
-  // Light cleanup for analyser-only resources (visualization streams)
-  private cleanupAnalyser(): void {
-    if (this.sourceNode) {
-      try { this.sourceNode.disconnect() } catch {}
-      this.sourceNode = null
-    }
-    // DON'T close AudioContext here -- it gets reused across recordings
-  }
-
   // Full teardown: closes AudioContext and releases everything.
   // Call this only on app shutdown, not between recordings.
   destroy(): void {
     this.cleanup()
     // Explicitly disconnect and null all nodes
     if (this.gainNode) {
-      try { this.gainNode.disconnect() } catch {}
+      try { this.gainNode.disconnect() } catch { /* already disconnected */ }
       this.gainNode = null
     }
     if (this.analyserNode) {
-      try { this.analyserNode.disconnect() } catch {}
+      try { this.analyserNode.disconnect() } catch { /* already disconnected */ }
       this.analyserNode = null
     }
     if (this.audioContext && this.audioContext.state !== 'closed') {
       this.audioContext.close().catch(() => {})
-      console.log('[Prattle] AudioContext closed (full destroy)')
     }
     this.audioContext = null
   }
@@ -482,232 +456,12 @@ export class SpeechService {
   }
 }
 
-// Transcribe audio using OpenAI Whisper API
-export async function transcribeWithWhisper(audioBlob: Blob, apiKey: string): Promise<string> {
-  if (audioBlob.size < 3000) return '' // Too small — would hallucinate
+// Re-export from transcriptionProviders for backwards compatibility
+export {
+  isHallucinatedPhrase,
+  transcribeWithWhisper,
+  transcribeWithDeepgram,
+  transcribeWithGemini,
+} from './transcriptionProviders'
 
-  const formData = new FormData()
-
-  // Whisper expects a file, create one from the blob
-  const audioFile = new File([audioBlob], 'recording.webm', { type: audioBlob.type })
-  formData.append('file', audioFile)
-  formData.append('model', 'whisper-1')
-  formData.append('language', 'en')
-  formData.append('response_format', 'text')
-  formData.append('temperature', '0') // Reduce hallucination — 0 = most deterministic
-  // Prompt hint helps Whisper understand context and reduces hallucination on short clips
-  formData.append('prompt', 'Voice dictation transcription.')
-
-  const response = await fetchWithTimeout('https://api.openai.com/v1/audio/transcriptions', {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${apiKey}`,
-    },
-    body: formData,
-    timeout: 30000,
-  })
-
-  if (!response.ok) {
-    const error = await response.text()
-    throw new Error(`Whisper API error: ${response.status} - ${error}`)
-  }
-
-  return (await response.text()).trim()
-}
-
-// Transcribe using Deepgram API
-export async function transcribeWithDeepgram(audioBlob: Blob, apiKey: string): Promise<string> {
-  if (audioBlob.size < 3000) return '' // Too small — would hallucinate
-
-  const arrayBuffer = await audioBlob.arrayBuffer()
-
-  // Scale timeout with audio size: 15s base + 1s per MB of audio
-  // A 30-min webm/opus recording is roughly 3-5MB, so this gives plenty of headroom
-  const timeoutMs = 15000 + Math.ceil(audioBlob.size / (1024 * 1024)) * 1000
-
-  const response = await fetchWithTimeout('https://api.deepgram.com/v1/listen?model=nova-3&language=en&smart_format=true&punctuate=true', {
-    method: 'POST',
-    headers: {
-      'Authorization': `Token ${apiKey}`,
-      'Content-Type': audioBlob.type,
-    },
-    body: arrayBuffer,
-    timeout: timeoutMs,
-  })
-
-  if (!response.ok) {
-    const error = await response.text()
-    throw new Error(`Deepgram API error: ${response.status} - ${error}`)
-  }
-
-  const result = await response.json()
-  const alternative = result.results?.channels?.[0]?.alternatives?.[0]
-  if (!alternative) return ''
-
-  // Check confidence — reject low-confidence transcriptions that are likely noise
-  const confidence = alternative.confidence ?? 1
-  if (confidence < 0.4) {
-    console.log(`[Prattle] Deepgram low confidence (${confidence.toFixed(2)}), rejecting transcription`)
-    return ''
-  }
-
-  return alternative.transcript || ''
-}
-
-// Transcribe audio using Google Gemini (supports audio input natively)
-export async function transcribeWithGemini(audioBlob: Blob, apiKey: string): Promise<string> {
-  // Safety: reject tiny audio blobs that would cause hallucination
-  // A 500ms webm/opus clip is typically 3-5KB; anything under 3KB is likely silence/noise
-  if (audioBlob.size < 3000) {
-    console.log(`[Prattle] Audio blob too small (${audioBlob.size} bytes), skipping transcription`)
-    return ''
-  }
-
-  // Convert audio blob to base64
-  const arrayBuffer = await audioBlob.arrayBuffer()
-  const base64Audio = btoa(
-    new Uint8Array(arrayBuffer).reduce((data, byte) => data + String.fromCharCode(byte), '')
-  )
-
-  // Determine the MIME type for Gemini
-  const mimeType = audioBlob.type.split(';')[0] // e.g., "audio/webm"
-
-  const response = await fetchWithTimeout(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{
-          parts: [
-            {
-              inlineData: {
-                mimeType: mimeType,
-                data: base64Audio,
-              }
-            },
-            {
-              text: `Transcribe the exact words spoken in this audio. Output ONLY the spoken words, nothing else. No labels, no quotes, no commentary. Do NOT repeat or duplicate any part of the transcription. If silent or unclear, respond with exactly: [EMPTY]`
-            }
-          ]
-        }],
-        generationConfig: {
-          temperature: 0,
-          maxOutputTokens: 1024,
-        }
-      }),
-      timeout: 30000,
-    }
-  )
-
-  if (!response.ok) {
-    const error = await response.text()
-    throw new Error(`Gemini transcription error: ${response.status} - ${error}`)
-  }
-
-  const result = await response.json()
-  const text = result.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || ''
-
-  // Catch hallucination markers and empty signals
-  if (!text || text === '[EMPTY]' || text.toLowerCase() === 'empty' || text === '""' || text === "''") {
-    return ''
-  }
-
-  // Strip any quotation marks Gemini might wrap around the transcription
-  let cleaned = text.replace(/^["']|["']$/g, '').trim()
-
-  // Detect and remove duplicated content (Gemini sometimes repeats the transcription)
-  cleaned = removeDuplicatedContent(cleaned)
-
-  return cleaned
-}
-
-// Detect and remove duplicated content in transcription output
-// Gemini sometimes repeats the entire transcription or large chunks of it
-function removeDuplicatedContent(text: string): string {
-  if (text.length < 20) return text
-
-  // Check if the text is roughly the same thing repeated (with some variation)
-  const half = Math.floor(text.length / 2)
-  const firstHalf = text.slice(0, half).trim().toLowerCase()
-  const secondHalf = text.slice(half).trim().toLowerCase()
-
-  // If the two halves are very similar (>80% overlap by words), take just the first half
-  const firstWords = firstHalf.split(/\s+/)
-  const secondWords = secondHalf.split(/\s+/)
-  if (firstWords.length > 3 && secondWords.length > 3) {
-    let matchCount = 0
-    const minLen = Math.min(firstWords.length, secondWords.length)
-    for (let i = 0; i < minLen; i++) {
-      if (firstWords[i] === secondWords[i]) matchCount++
-    }
-    if (matchCount / minLen > 0.8) {
-      console.log(`[Prattle] Detected duplicated transcription, using first half`)
-      return text.slice(0, half).trim()
-    }
-  }
-
-  // Also check for exact substring repetition (text appears twice in a row)
-  for (let len = Math.floor(text.length / 2); len >= 10; len--) {
-    const chunk = text.slice(0, len).trim()
-    const rest = text.slice(len).trim()
-    if (rest.toLowerCase().startsWith(chunk.toLowerCase())) {
-      console.log(`[Prattle] Detected repeated substring in transcription`)
-      return chunk
-    }
-  }
-
-  return text
-}
-
-// Browser Web Speech API (free fallback)
-export function transcribeWithBrowser(): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
-
-    if (!SpeechRecognition) {
-      reject(new Error('Web Speech API not available'))
-      return
-    }
-
-    const recognition = new SpeechRecognition()
-    recognition.lang = 'en-US'
-    recognition.interimResults = false
-    recognition.maxAlternatives = 1
-    recognition.continuous = true
-
-    let fullTranscript = ''
-
-    recognition.onresult = (event: any) => {
-      for (let i = event.resultIndex; i < event.results.length; i++) {
-        if (event.results[i].isFinal) {
-          fullTranscript += event.results[i][0].transcript + ' '
-        }
-      }
-    }
-
-    recognition.onerror = (event: any) => {
-      reject(new Error(`Speech recognition error: ${event.error}`))
-    }
-
-    recognition.onend = () => {
-      resolve(fullTranscript.trim())
-    }
-
-    recognition.start()
-
-    // Store reference for stopping later
-    ;(window as any).__activeSpeechRecognition = recognition
-  })
-}
-
-export function stopBrowserTranscription(): void {
-  const recognition = (window as any).__activeSpeechRecognition
-  if (recognition) {
-    recognition.stop()
-    ;(window as any).__activeSpeechRecognition = null
-  }
-}
-
-export { isHallucinatedPhrase }
 export const speechService = new SpeechService()

@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useRef, useEffect } from 'react'
 import { useAppStore } from '../stores/appStore'
 import { DICTATION_MODES } from '../constants/modes'
 import { revisePrompt } from '../services/llmService'
@@ -10,8 +10,22 @@ export default function ModesView() {
   const [chatInput, setChatInput] = useState('')
   const [isRevising, setIsRevising] = useState(false)
   const [reviseError, setReviseError] = useState<string | null>(null)
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  if (!settings) return null
+  // Cleanup debounce timer on unmount
+  useEffect(() => {
+    return () => {
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
+    }
+  }, [])
+
+  if (!settings) {
+    return (
+      <div className="flex items-center justify-center h-full">
+        <div className="w-8 h-8 border-2 border-cd-accent border-t-transparent rounded-full animate-spin" />
+      </div>
+    )
+  }
 
   const currentModeIndex = settings.currentModeIndex
 
@@ -49,17 +63,26 @@ export default function ModesView() {
       const newSettings = { ...settings, customPrompts: newCustomPrompts }
       await saveSettingsToFile(newSettings)
       setChatInput('')
-    } catch (error: any) {
-      setReviseError(error.message || 'Failed to revise prompt')
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'An unexpected error occurred'
+      setReviseError(message || 'Failed to revise prompt')
     } finally {
       setIsRevising(false)
     }
   }, [chatInput, isRevising, settings])
 
-  const handleDirectEdit = async (index: number, newPrompt: string) => {
+  const handleDirectEdit = (index: number, newPrompt: string) => {
+    // Debounce saves: update local state immediately via settings store,
+    // but only persist to disk after 500ms of inactivity
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
+
     const newCustomPrompts = { ...settings.customPrompts, [index]: newPrompt }
     const newSettings = { ...settings, customPrompts: newCustomPrompts }
-    await saveSettingsToFile(newSettings)
+
+    // Update store immediately for responsive UI
+    saveTimerRef.current = setTimeout(async () => {
+      await saveSettingsToFile(newSettings)
+    }, 500)
   }
 
   return (
@@ -72,7 +95,7 @@ export default function ModesView() {
           <button
             key={mode.id}
             onClick={() => handleModeSelect(index)}
-            className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-all ${
+            className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-all focus-visible:ring-2 focus-visible:ring-cd-accent/50 ${
               currentModeIndex === index
                 ? 'bg-cd-accent text-white shadow-sm'
                 : 'text-cd-subtle hover:text-cd-text'
@@ -102,7 +125,7 @@ export default function ModesView() {
               {/* Card header */}
               <button
                 onClick={() => setExpandedMode(expanded ? null : index)}
-                className="w-full flex items-center justify-between p-4 text-left"
+                className="w-full flex items-center justify-between p-4 text-left focus-visible:ring-2 focus-visible:ring-cd-accent/50 rounded-t-2xl"
               >
                 <div className="flex items-center gap-3">
                   <span className="text-sm font-semibold text-cd-accent">{mode.name}</span>
@@ -137,7 +160,7 @@ export default function ModesView() {
                   <textarea
                     value={prompt}
                     onChange={(e) => handleDirectEdit(index, e.target.value)}
-                    className="w-full bg-cd-bg border border-white/10 rounded-xl p-3 text-sm text-cd-text placeholder-cd-subtle/50 resize-none focus:outline-none focus:ring-1 focus:ring-cd-accent/50 min-h-[100px]"
+                    className="textarea-field text-sm min-h-[100px]"
                   />
 
                   {/* Chat input for AI revision */}
@@ -148,12 +171,12 @@ export default function ModesView() {
                       onChange={(e) => setChatInput(e.target.value)}
                       onKeyDown={(e) => e.key === 'Enter' && handleRevisePrompt(index)}
                       placeholder="What should I change?"
-                      className="flex-1 bg-cd-bg border border-white/10 rounded-xl px-3 py-2 text-sm text-cd-text placeholder-cd-subtle/50 focus:outline-none focus:ring-1 focus:ring-cd-accent/50"
+                      className="input-field flex-1 text-sm"
                     />
                     <button
                       onClick={() => handleRevisePrompt(index)}
                       disabled={!chatInput.trim() || isRevising}
-                      className="px-3 py-2 rounded-xl bg-cd-accent text-white text-sm font-medium hover:bg-cd-accent/80 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                      className="btn-primary px-3 py-2"
                     >
                       {isRevising ? (
                         <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
@@ -171,7 +194,7 @@ export default function ModesView() {
                   {customized && (
                     <button
                       onClick={() => handleResetPrompt(index)}
-                      className="flex items-center gap-1.5 text-xs text-cd-subtle hover:text-cd-text transition-colors"
+                      className="flex items-center gap-1.5 text-xs text-cd-subtle hover:text-cd-text transition-colors focus-visible:ring-2 focus-visible:ring-cd-accent/50 rounded-lg px-1"
                     >
                       <HiArrowPath className="w-3.5 h-3.5" />
                       Reset to Default

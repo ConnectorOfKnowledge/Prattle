@@ -12,6 +12,7 @@ export default function DictionaryView() {
   const [editTo, setEditTo] = useState('')
   const [search, setSearch] = useState('')
   const [showAddForm, setShowAddForm] = useState(false)
+  const [error, setError] = useState('')
 
   useEffect(() => {
     if (dictionary) {
@@ -41,6 +42,7 @@ export default function DictionaryView() {
 
   const handleDelete = async (key: string) => {
     if (!dictionary) return
+    if (!window.confirm('Delete this dictionary entry?')) return
     const { [key]: _, ...rest } = dictionary.replacements
     await saveDictionaryToFile({ replacements: rest })
   }
@@ -75,6 +77,7 @@ export default function DictionaryView() {
   }
 
   const handleImport = async () => {
+    setError('')
     const result = await window.electronAPI.showOpenDialog({
       title: 'Import Dictionary',
       filters: [{ name: 'JSON', extensions: ['json'] }],
@@ -92,9 +95,11 @@ export default function DictionaryView() {
             }
           }
           await saveDictionaryToFile(merged)
+        } else {
+          setError('Failed to import dictionary. Make sure the file is valid JSON.')
         }
-      } catch {
-        // Could show error toast
+      } catch (err: unknown) {
+        setError('Failed to import dictionary. Make sure the file is valid JSON.')
       }
     }
   }
@@ -124,6 +129,13 @@ export default function DictionaryView() {
           </button>
         </div>
       </div>
+
+      {/* Error display */}
+      {error && (
+        <div className="bg-red-900/20 border border-red-700/30 rounded-xl px-4 py-3">
+          <p className="text-sm text-red-400">{error}</p>
+        </div>
+      )}
 
       {/* Add form */}
       {showAddForm && (
@@ -216,7 +228,7 @@ export default function DictionaryView() {
                     <span className="text-sm text-cd-text flex-1 font-medium">{from}</span>
                     <span className="text-cd-subtle text-sm">&rarr;</span>
                     <span className="text-sm text-cd-accent flex-1">{to}</span>
-                    <div className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1">
+                    <div className="opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity flex items-center gap-1">
                       <button onClick={() => startEdit(from, to)} className="btn-icon">
                         <HiPencil className="w-3.5 h-3.5" />
                       </button>

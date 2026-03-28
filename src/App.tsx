@@ -8,12 +8,37 @@ import LearningView from './components/LearningView'
 import AuthView from './components/AuthView'
 import AccountView from './components/AccountView'
 import Header from './components/Header'
+import ErrorBoundary from './components/ErrorBoundary'
 import { TicketDeckWidget } from 'ticketdeck'
 import SubscriptionGate from './components/SubscriptionGate'
 import { getSession, getSubscriptionStatus, onAuthStateChange, exchangeOAuthCode } from './services/authService'
+import type { SubscriptionResponse, UserProfile } from './types'
+import type { Session } from '@supabase/supabase-js'
+
+function mapToUserProfile(session: Session, sub: SubscriptionResponse): UserProfile {
+  return {
+    id: session.user.id,
+    email: session.user.email || '',
+    subscriptionStatus: sub.status,
+    plan: sub.plan,
+    accessType: sub.accessType || 'expired',
+    trialEndsAt: sub.trialEndsAt,
+    currentPeriodEnd: sub.currentPeriodEnd,
+    cancelAtPeriodEnd: sub.cancelAtPeriodEnd,
+  }
+}
+
+const views: Record<string, React.ComponentType> = {
+  main: MainView,
+  modes: ModesView,
+  settings: SettingsView,
+  dictionary: DictionaryView,
+  learning: LearningView,
+  account: AccountView,
+}
 
 export default function App() {
-  const { currentView, loadAllData, settings, user, isAuthenticated, setUser, setIsCheckingAuth, setCurrentView } = useAppStore()
+  const { currentView, loadAllData, settings, isAuthenticated, setUser, setIsCheckingAuth, setCurrentView } = useAppStore()
   const [appVersion, setAppVersion] = useState('1.0.0')
 
   useEffect(() => {
@@ -27,16 +52,7 @@ export default function App() {
         const session = await getSession()
         if (session) {
           const sub = await getSubscriptionStatus()
-          setUser({
-            id: session.user.id,
-            email: session.user.email || '',
-            subscriptionStatus: sub.status as any,
-            plan: sub.plan as any,
-            accessType: (sub as any).accessType || 'expired',
-            trialEndsAt: (sub as any).trialEndsAt,
-            currentPeriodEnd: sub.currentPeriodEnd,
-            cancelAtPeriodEnd: sub.cancelAtPeriodEnd,
-          })
+          setUser(mapToUserProfile(session, sub))
         } else {
           // No session -- show auth view
           setCurrentView('auth')
@@ -53,16 +69,7 @@ export default function App() {
     const cleanupAuth = onAuthStateChange(async (session) => {
       if (session) {
         const sub = await getSubscriptionStatus()
-        setUser({
-          id: session.user.id,
-          email: session.user.email || '',
-          subscriptionStatus: sub.status as any,
-          plan: sub.plan as any,
-          accessType: (sub as any).accessType || 'expired',
-          trialEndsAt: (sub as any).trialEndsAt,
-          currentPeriodEnd: sub.currentPeriodEnd,
-          cancelAtPeriodEnd: sub.cancelAtPeriodEnd,
-        })
+        setUser(mapToUserProfile(session, sub))
         setCurrentView('main')
       } else {
         setUser(null)
@@ -77,16 +84,7 @@ export default function App() {
         const session = await exchangeOAuthCode(url)
         if (session) {
           const sub = await getSubscriptionStatus()
-          setUser({
-            id: session.user.id,
-            email: session.user.email || '',
-            subscriptionStatus: sub.status as any,
-            plan: sub.plan as any,
-            accessType: (sub as any).accessType || 'expired',
-            trialEndsAt: (sub as any).trialEndsAt,
-            currentPeriodEnd: sub.currentPeriodEnd,
-            cancelAtPeriodEnd: sub.cancelAtPeriodEnd,
-          })
+          setUser(mapToUserProfile(session, sub))
           setCurrentView('main')
         }
       } catch (err) {
@@ -123,19 +121,20 @@ export default function App() {
     )
   }
 
+  const ViewComponent = views[currentView] || MainView
+
   return (
     <div className="h-screen flex flex-col bg-cd-bg overflow-hidden">
       <Header />
-      <SubscriptionGate>
-        <main className="flex-1 overflow-hidden">
-          {currentView === 'main' && <div className="h-full overflow-y-auto"><MainView /></div>}
-          {currentView === 'modes' && <div className="h-full overflow-y-auto"><ModesView /></div>}
-          {currentView === 'settings' && <div className="h-full overflow-y-auto"><SettingsView /></div>}
-          {currentView === 'dictionary' && <div className="h-full overflow-y-auto"><DictionaryView /></div>}
-          {currentView === 'learning' && <div className="h-full overflow-y-auto"><LearningView /></div>}
-          {currentView === 'account' && <div className="h-full overflow-y-auto"><AccountView /></div>}
-        </main>
-      </SubscriptionGate>
+      <ErrorBoundary>
+        <SubscriptionGate>
+          <main className="flex-1 overflow-hidden">
+            <div className="h-full overflow-y-auto">
+              <ViewComponent />
+            </div>
+          </main>
+        </SubscriptionGate>
+      </ErrorBoundary>
       <TicketDeckWidget project="Prattle" position="bottom-left" accentColor="#6366f1" theme="auto" />
     </div>
   )

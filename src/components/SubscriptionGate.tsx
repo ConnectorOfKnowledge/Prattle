@@ -1,10 +1,9 @@
 import { useEffect, useState } from 'react'
 import { useAppStore } from '../stores/appStore'
 import { HiLockClosed } from 'react-icons/hi2'
-import { getAccessToken } from '../services/authService'
+import { getAccessToken, signOut } from '../services/authService'
 import { fetchWithTimeout } from '../utils/fetchWithTimeout'
-
-const PROXY_BASE = 'https://prattle.app'
+import { PROXY_BASE } from '../constants/config'
 
 export default function SubscriptionGate({ children }: { children: React.ReactNode }) {
   const { user, refreshSubscription } = useAppStore()
@@ -31,7 +30,7 @@ export default function SubscriptionGate({ children }: { children: React.ReactNo
       const token = await getAccessToken()
       if (!token) {
         setPromoStatus('error')
-        setPromoMessage('Not authenticated. Please restart the app.')
+        setPromoMessage('Session expired. Please sign out and log in again.')
         return
       }
 
@@ -56,7 +55,7 @@ export default function SubscriptionGate({ children }: { children: React.ReactNo
         setPromoStatus('error')
         setPromoMessage(result.error || 'Invalid promo code')
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       setPromoStatus('error')
       setPromoMessage('Could not verify code. Check your connection.')
     }
@@ -84,9 +83,9 @@ export default function SubscriptionGate({ children }: { children: React.ReactNo
         </div>
         <button
           onClick={() => {
-            window.electronAPI.openExternalUrl('https://prattle.app/#pricing')
+            window.electronAPI.openExternalUrl('https://voicetype-web.vercel.app/#pricing')
           }}
-          className="px-6 py-3 rounded-xl text-sm font-medium bg-cd-accent hover:bg-cd-accent/80 text-white transition-all"
+          className="btn-primary"
         >
           View Plans & Subscribe
         </button>
@@ -117,7 +116,7 @@ export default function SubscriptionGate({ children }: { children: React.ReactNo
             <button
               onClick={handlePromoSubmit}
               disabled={promoStatus === 'loading' || !promoCode.trim()}
-              className="px-4 py-2 rounded-lg text-sm font-medium bg-cd-bg-secondary border border-cd-border text-cd-text hover:bg-cd-bg-tertiary transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+              className="btn-secondary text-sm"
             >
               {promoStatus === 'loading' ? '...' : 'Apply'}
             </button>
@@ -128,6 +127,17 @@ export default function SubscriptionGate({ children }: { children: React.ReactNo
             </p>
           )}
         </div>
+
+        <button
+          onClick={async () => {
+            try { await signOut() } catch { /* session already dead, that's fine */ }
+            useAppStore.getState().setUser(null)
+            useAppStore.getState().setCurrentView('auth')
+          }}
+          className="text-xs text-cd-subtle hover:text-cd-text underline transition-colors focus-visible:ring-2 focus-visible:ring-cd-accent/50 rounded"
+        >
+          Sign out and re-login
+        </button>
       </div>
     )
   }

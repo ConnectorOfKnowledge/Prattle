@@ -35,6 +35,7 @@ export default function LearningView() {
   }
 
   const handleDelete = async (id: string) => {
+    if (!window.confirm('Delete this pattern?')) return
     const updated = patterns.filter(p => p.id !== id)
     await saveLearnedPatternsToFile({ patterns: updated })
   }
@@ -75,6 +76,7 @@ export default function LearningView() {
   }
 
   const handleClearAll = async () => {
+    if (!window.confirm('Delete ALL learned patterns? This cannot be undone.')) return
     await saveLearnedPatternsToFile({ patterns: [] })
   }
 
@@ -177,7 +179,7 @@ export default function LearningView() {
             <button
               key={p.id}
               onClick={() => setFilter(p.id)}
-              className={`text-xs px-2.5 py-1 rounded-lg transition-all
+              className={`text-xs px-2.5 py-1 rounded-lg transition-all focus-visible:ring-2 focus-visible:ring-cd-accent/50
                 ${filter === p.id
                   ? 'bg-cd-accent/20 text-cd-accent font-medium'
                   : 'text-cd-subtle hover:bg-white/5'
@@ -231,7 +233,7 @@ export default function LearningView() {
                       </div>
                     )}
                   </div>
-                  <div className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1 shrink-0">
+                  <div className="opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity flex items-center gap-1 shrink-0">
                     <button onClick={() => handleToggleActive(pattern.id)} className="btn-icon" title={pattern.active ? 'Disable' : 'Enable'}>
                       {pattern.active ? <HiEye className="w-3.5 h-3.5" /> : <HiEyeSlash className="w-3.5 h-3.5" />}
                     </button>
@@ -369,7 +371,7 @@ function PatternList({
                   </span>
                 </div>
               </div>
-              <div className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1 shrink-0">
+              <div className="opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity flex items-center gap-1 shrink-0">
                 <button onClick={() => onToggle(pattern.id)} className="btn-icon" title={pattern.active ? 'Disable' : 'Enable'}>
                   {pattern.active ? <HiEye className="w-3.5 h-3.5" /> : <HiEyeSlash className="w-3.5 h-3.5" />}
                 </button>

@@ -15,8 +15,9 @@ export default function AuthView() {
     setError('')
     try {
       await signInWithGoogle()
-    } catch (err: any) {
-      setError(err.message || 'Failed to start Google sign-in')
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'An unexpected error occurred'
+      setError(message || 'Failed to start Google sign-in')
       setLoading(false)
     }
   }
@@ -39,8 +40,9 @@ export default function AuthView() {
         await signIn(email, password)
       }
       // Auth state listener in App.tsx handles the rest
-    } catch (err: any) {
-      setError(err.message || 'Authentication failed')
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'An unexpected error occurred'
+      setError(message || 'Authentication failed')
       setLoading(false)
     }
   }
@@ -65,7 +67,7 @@ export default function AuthView() {
         <button
           onClick={handleGoogleLogin}
           disabled={loading}
-          className="w-full py-3 px-4 rounded-xl text-sm font-medium bg-white text-gray-800 hover:bg-gray-100 transition-all disabled:opacity-50 flex items-center justify-center gap-3"
+          className="w-full py-3 px-4 rounded-xl text-sm font-medium bg-white text-gray-800 hover:bg-gray-100 transition-all disabled:opacity-50 flex items-center justify-center gap-3 focus-visible:ring-2 focus-visible:ring-cd-accent/50"
         >
           <svg className="w-5 h-5" viewBox="0 0 24 24">
             <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z" fill="#4285F4" />
@@ -90,7 +92,7 @@ export default function AuthView() {
             onChange={(e) => setEmail(e.target.value)}
             placeholder="Email address"
             required
-            className="w-full px-4 py-2.5 rounded-xl border border-white/10 bg-cd-bg text-cd-text placeholder-cd-subtle/50 focus:outline-none focus:ring-2 focus:ring-cd-accent/50 text-sm"
+            className="input-field text-sm"
           />
           <input
             type="password"
@@ -99,12 +101,12 @@ export default function AuthView() {
             placeholder="Password"
             required
             minLength={6}
-            className="w-full px-4 py-2.5 rounded-xl border border-white/10 bg-cd-bg text-cd-text placeholder-cd-subtle/50 focus:outline-none focus:ring-2 focus:ring-cd-accent/50 text-sm"
+            className="input-field text-sm"
           />
           <button
             type="submit"
             disabled={loading || !email || !password}
-            className="w-full py-2.5 px-4 rounded-xl text-sm font-medium bg-cd-accent hover:bg-cd-accent/80 text-white transition-all disabled:opacity-50"
+            className="btn-primary w-full"
           >
             {loading ? 'Please wait...' : isSignUp ? 'Create Account' : 'Sign In'}
           </button>
@@ -124,7 +126,7 @@ export default function AuthView() {
       <div className="border-t border-white/10 pt-4 text-center">
         <button
           onClick={() => { setIsSignUp(!isSignUp); setError('') }}
-          className="text-sm text-cd-subtle hover:text-cd-text transition-colors"
+          className="text-sm text-cd-subtle hover:text-cd-text transition-colors focus-visible:ring-2 focus-visible:ring-cd-accent/50 rounded-lg px-2 py-1"
         >
           {isSignUp ? 'Already have an account? Sign in' : "Don't have an account? Sign up free"}
         </button>

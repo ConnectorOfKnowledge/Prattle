@@ -3,6 +3,72 @@ import { DICTATION_MODES } from '../constants/modes'
 import type { RecordingState } from '../constants/modes'
 import type { Settings } from '../types'
 
+/** Named color constants for the floating indicator */
+const COLORS = {
+  rewriteAccent: '#A78BFA',
+  rewriteGlow: 'rgba(167, 139, 250, 0.4)',
+  recordAccent: '#EF4444',
+  recordGlow: 'rgba(239, 68, 68, 0.4)',
+  processingBlue: 'rgba(96, 165, 250, 0.7)',
+  processingBlueFaint: 'rgba(96, 165, 250, 0.1)',
+  processingPurple: 'rgba(147, 130, 255, 0.5)',
+  processingPurpleFaint: 'rgba(147, 130, 255, 0.1)',
+  processingPurpleMed: 'rgba(147, 130, 255, 0.6)',
+  processingBlueMed: 'rgba(96, 165, 250, 0.6)',
+  processingBlueDim: 'rgba(96, 165, 250, 0.5)',
+  targetWindowColor: 'rgba(100, 200, 255, 0.8)',
+  targetWindowDim: 'rgba(100, 200, 255, 0.5)',
+  subtleBorder: 'rgba(96, 165, 250, 0.25)',
+  subtleHighlight: 'rgba(255,255,255,0.06)',
+  subtleDivider: 'rgba(255,255,255,0.12)',
+} as const
+
+/** Keyframe animations used by the floating indicator */
+const KEYFRAMES = `
+  @keyframes pulse-dot {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.5; transform: scale(0.8); }
+  }
+  @keyframes pulse-ring {
+    0% { transform: scale(0.8); opacity: 0.6; }
+    100% { transform: scale(1.6); opacity: 0; }
+  }
+  @keyframes spin {
+    to { transform: rotate(360deg); }
+  }
+  @keyframes spin-reverse {
+    to { transform: rotate(-360deg); }
+  }
+  @keyframes audio-bar-0 {
+    0%, 100% { height: 4px; }
+    25% { height: 22px; }
+    75% { height: 8px; }
+  }
+  @keyframes audio-bar-1 {
+    0%, 100% { height: 6px; }
+    40% { height: 26px; }
+    60% { height: 10px; }
+  }
+  @keyframes audio-bar-2 {
+    0%, 100% { height: 5px; }
+    35% { height: 18px; }
+    65% { height: 24px; }
+  }
+  @keyframes proc-wave {
+    0%, 100% { height: 4px; }
+    50% { height: 16px; }
+  }
+  @keyframes shimmer {
+    0% { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+  }
+  @keyframes progress-slide {
+    0% { transform: translateX(-100%); }
+    50% { transform: translateX(200%); }
+    100% { transform: translateX(-100%); }
+  }
+`
+
 export default function FloatingIndicator() {
   const [recordingState, setRecordingState] = useState<RecordingState>('idle')
   const [modeIndex, setModeIndex] = useState(0)
@@ -66,8 +132,8 @@ export default function FloatingIndicator() {
       if (settings) {
         await window.electronAPI.saveSettings({ ...settings, currentModeIndex: nextIndex })
       }
-    } catch (e) {
-      console.error('Failed to save mode change:', e)
+    } catch {
+      // Settings save failed silently -- mode will revert on next load
     }
   }, [modeIndex])
 
@@ -94,8 +160,8 @@ export default function FloatingIndicator() {
   const formatTime = (s: number) => `${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, '0')}`
 
   // Colors
-  const accentColor = isRewrite ? '#A78BFA' : '#EF4444'
-  const accentGlow = isRewrite ? 'rgba(167, 139, 250, 0.4)' : 'rgba(239, 68, 68, 0.4)'
+  const accentColor = isRewrite ? COLORS.rewriteAccent : COLORS.recordAccent
+  const accentGlow = isRewrite ? COLORS.rewriteGlow : COLORS.recordGlow
 
   return (
     <div
@@ -103,12 +169,12 @@ export default function FloatingIndicator() {
       style={{
         background: 'linear-gradient(135deg, rgba(10, 10, 16, 0.96) 0%, rgba(20, 15, 30, 0.96) 100%)',
         borderRadius: '20px',
-        border: `1.5px solid ${isProcessing ? 'rgba(96, 165, 250, 0.25)' : accentColor + '50'}`,
+        border: `1.5px solid ${isProcessing ? COLORS.subtleBorder : accentColor + '50'}`,
         boxShadow: isRecording
-          ? `0 0 40px ${accentGlow}, 0 12px 32px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.06)`
+          ? `0 0 40px ${accentGlow}, 0 12px 32px rgba(0,0,0,0.6), inset 0 1px 0 ${COLORS.subtleHighlight}`
           : isProcessing
-          ? '0 0 30px rgba(96, 165, 250, 0.15), 0 12px 32px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.06)'
-          : '0 12px 32px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.06)',
+          ? `0 0 30px rgba(96, 165, 250, 0.15), 0 12px 32px rgba(0,0,0,0.6), inset 0 1px 0 ${COLORS.subtleHighlight}`
+          : `0 12px 32px rgba(0,0,0,0.6), inset 0 1px 0 ${COLORS.subtleHighlight}`,
         padding: '8px 20px',
       }}
     >
@@ -147,9 +213,9 @@ export default function FloatingIndicator() {
                   width: 32,
                   height: 32,
                   borderRadius: '50%',
-                  border: '2.5px solid rgba(96, 165, 250, 0.1)',
-                  borderTopColor: 'rgba(96, 165, 250, 0.7)',
-                  borderRightColor: 'rgba(147, 130, 255, 0.5)',
+                  border: `2.5px solid ${COLORS.processingBlueFaint}`,
+                  borderTopColor: COLORS.processingBlue,
+                  borderRightColor: COLORS.processingPurple,
                   animation: 'spin 1s linear infinite',
                 }}
               />
@@ -160,8 +226,8 @@ export default function FloatingIndicator() {
                   width: 20,
                   height: 20,
                   borderRadius: '50%',
-                  border: '2px solid rgba(147, 130, 255, 0.1)',
-                  borderBottomColor: 'rgba(147, 130, 255, 0.6)',
+                  border: `2px solid ${COLORS.processingPurpleFaint}`,
+                  borderBottomColor: COLORS.processingPurpleMed,
                   animation: 'spin-reverse 0.8s linear infinite',
                 }}
               />
@@ -171,7 +237,7 @@ export default function FloatingIndicator() {
                   width: 5,
                   height: 5,
                   borderRadius: '50%',
-                  backgroundColor: 'rgba(96, 165, 250, 0.6)',
+                  backgroundColor: COLORS.processingBlueMed,
                   animation: 'pulse-dot 1.5s ease-in-out infinite',
                 }}
               />
@@ -221,7 +287,7 @@ export default function FloatingIndicator() {
             onClick={handleCycleMode}
             className="text-[12px] font-bold tracking-wider uppercase px-3 py-1.5 rounded-lg transition-all cursor-pointer whitespace-nowrap"
             style={{
-              color: isProcessing ? 'rgba(96, 165, 250, 0.7)' : accentColor,
+              color: isProcessing ? COLORS.processingBlue : accentColor,
               backgroundColor: isProcessing ? 'rgba(96, 165, 250, 0.08)' : accentColor + '18',
               border: `1px solid ${isProcessing ? 'rgba(96, 165, 250, 0.15)' : accentColor + '30'}`,
             }}
@@ -233,7 +299,7 @@ export default function FloatingIndicator() {
           {/* Duration */}
           {isRecording && (
             <>
-              <div style={{ width: 1, height: 20, background: 'rgba(255,255,255,0.12)' }} />
+              <div style={{ width: 1, height: 20, background: COLORS.subtleDivider }} />
               <span
                 className="text-[16px] font-mono font-semibold tabular-nums tracking-wide"
                 style={{ color: 'rgba(255,255,255,0.75)' }}
@@ -265,7 +331,7 @@ export default function FloatingIndicator() {
             {targetWindow && (
               <span
                 className="text-[10px] font-medium truncate"
-                style={{ color: 'rgba(100, 200, 255, 0.8)', maxWidth: 100 }}
+                style={{ color: COLORS.targetWindowColor, maxWidth: 100 }}
                 title={`Text will be typed into: ${targetWindow}`}
               >
                 {targetWindow}
@@ -291,7 +357,7 @@ export default function FloatingIndicator() {
         {isProcessing && targetWindow && (
           <span
             className="text-[10px] font-medium truncate"
-            style={{ color: 'rgba(100, 200, 255, 0.5)', maxWidth: 100 }}
+            style={{ color: COLORS.targetWindowDim, maxWidth: 100 }}
             title={`Text will be typed into: ${targetWindow}`}
           >
             {targetWindow}
@@ -336,50 +402,7 @@ export default function FloatingIndicator() {
         />
       )}
 
-      <style>{`
-        @keyframes pulse-dot {
-          0%, 100% { opacity: 1; transform: scale(1); }
-          50% { opacity: 0.5; transform: scale(0.8); }
-        }
-        @keyframes pulse-ring {
-          0% { transform: scale(0.8); opacity: 0.6; }
-          100% { transform: scale(1.6); opacity: 0; }
-        }
-        @keyframes spin {
-          to { transform: rotate(360deg); }
-        }
-        @keyframes spin-reverse {
-          to { transform: rotate(-360deg); }
-        }
-        @keyframes audio-bar-0 {
-          0%, 100% { height: 4px; }
-          25% { height: 22px; }
-          75% { height: 8px; }
-        }
-        @keyframes audio-bar-1 {
-          0%, 100% { height: 6px; }
-          40% { height: 26px; }
-          60% { height: 10px; }
-        }
-        @keyframes audio-bar-2 {
-          0%, 100% { height: 5px; }
-          35% { height: 18px; }
-          65% { height: 24px; }
-        }
-        @keyframes proc-wave {
-          0%, 100% { height: 4px; }
-          50% { height: 16px; }
-        }
-        @keyframes shimmer {
-          0% { background-position: 200% 0; }
-          100% { background-position: -200% 0; }
-        }
-        @keyframes progress-slide {
-          0% { transform: translateX(-100%); }
-          50% { transform: translateX(200%); }
-          100% { transform: translateX(-100%); }
-        }
-      `}</style>
+      <style>{KEYFRAMES}</style>
     </div>
   )
 }

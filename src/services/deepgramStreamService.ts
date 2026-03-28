@@ -13,12 +13,13 @@
 export type TranscriptCallback = (text: string, isFinal: boolean) => void
 export type ErrorCallback = (error: Error) => void
 
+const WS_CONNECT_TIMEOUT_MS = 5000
+
 export class DeepgramStreamService {
   private ws: WebSocket | null = null
   private finalizedTranscript = ''
   private onTranscript: TranscriptCallback | null = null
   private onError: ErrorCallback | null = null
-  private closeResolve: (() => void) | null = null
 
   // Pre-connect audio buffer: captures PCM chunks before AND during WebSocket connect.
   // Unlike the previous design, this buffers even when this.ws is null (before start()
@@ -93,16 +94,16 @@ export class DeepgramStreamService {
         ['token', apiKey]
       )
 
-      // Connection timeout -- if WebSocket doesn't connect within 5s, fail gracefully
+      // Connection timeout -- if WebSocket doesn't connect in time, fail gracefully
       this.connectTimeout = setTimeout(() => {
         this.connectTimeout = null
         if (this.sessionId !== currentSession) return
-        console.error('[Prattle] WebSocket connection timeout (5s)')
+        console.error('[Prattle] WebSocket connection timeout')
         this.ws?.close()
         this.ws = null
         this.isBuffering = false
         reject(new Error('Deepgram WebSocket connection timeout'))
-      }, 5000)
+      }, WS_CONNECT_TIMEOUT_MS)
 
       // Capture a reference to the specific WebSocket for this session.
       // Using this.ws! in handlers is unsafe because this.ws could point
@@ -121,8 +122,6 @@ export class DeepgramStreamService {
           ws.close()
           return
         }
-
-        console.log(`[Prattle] Deepgram WebSocket connected (session ${currentSession}, ${this.preConnectBuffer.length} buffered chunks to replay)`)
 
         // Replay all audio captured while we were connecting (or before start() was called)
         for (const chunk of this.preConnectBuffer) {
@@ -184,14 +183,12 @@ export class DeepgramStreamService {
               onTranscript(display, false)
             }
           }
-        } catch (e) {
-          console.error('[Prattle] Failed to parse Deepgram message:', e)
+        } catch (error: unknown) {
+          console.error('[Prattle] Failed to parse Deepgram message:', error)
         }
       }
 
       ws.onclose = (event) => {
-        console.log(`[Prattle] Deepgram WebSocket closed (session ${currentSession}, code: ${event.code})`)
-
         // Detect unexpected close during an active recording session (e.g. Deepgram timeout ~5min).
         // Code 1000 = clean close initiated by us; anything else = unexpected.
         // When the connection drops mid-recording, notify via onError so the UI can
@@ -205,11 +202,6 @@ export class DeepgramStreamService {
           }
         }
 
-        // Only resolve the stop() promise if this is the current session's close
-        if (this.sessionId === currentSession && this.closeResolve) {
-          this.closeResolve()
-          this.closeResolve = null
-        }
       }
     })
   }
@@ -261,9 +253,7 @@ export class DeepgramStreamService {
     this.ws = null
     this.onTranscript = null
     this.onError = null
-    this.closeResolve = null
 
-    console.log(`[Prattle] Deepgram stop() -- returning transcript (${transcript.split(' ').length} words)`)
     return transcript
   }
 
@@ -285,7 +275,6 @@ export class DeepgramStreamService {
     this.finalizedTranscript = ''
     this.onTranscript = null
     this.onError = null
-    this.closeResolve = null
   }
 }
 

@@ -19,12 +19,25 @@ export interface Settings {
   trainingEnabled: boolean  // When off, hides training toggle + Learning tab
 }
 
+export type SubscriptionStatus = 'active' | 'trial' | 'expired' | 'canceled' | 'past_due' | 'none'
+export type SubscriptionPlan = 'monthly' | 'annual' | 'family' | 'trial' | 'free' | 'none'
+export type AccessType = 'subscription' | 'trial' | 'family' | 'expired'
+
+export interface SubscriptionResponse {
+  status: SubscriptionStatus
+  plan: SubscriptionPlan
+  accessType?: AccessType
+  trialEndsAt?: string
+  currentPeriodEnd?: string
+  cancelAtPeriodEnd?: boolean
+}
+
 export interface UserProfile {
   id: string
   email: string
-  subscriptionStatus: 'active' | 'trial' | 'expired' | 'canceled' | 'past_due' | 'none'
-  plan: 'monthly' | 'annual' | 'family' | 'trial' | 'none'
-  accessType: 'subscription' | 'trial' | 'family' | 'expired'
+  subscriptionStatus: SubscriptionStatus
+  plan: SubscriptionPlan
+  accessType: AccessType
   trialEndsAt?: string
   currentPeriodEnd?: string
   cancelAtPeriodEnd?: boolean
@@ -82,7 +95,6 @@ declare global {
       writeFile: (filePath: string, content: string) => Promise<boolean>
       readFile: (filePath: string) => Promise<string>
       hideIndicator: () => void
-      hasCommittedText: (hasText: boolean) => void
       onRecordingCommand: (callback: (command: string, data?: any) => void) => () => void
       // Target window tracking (shows which app will receive text)
       onTargetWindow: (callback: (title: string) => void) => () => void

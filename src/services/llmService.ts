@@ -1,7 +1,16 @@
 // LLM service for text processing, tone adjustment, and learning
 
 import type { Settings, Dictionary, LearnedPattern, ChatMessage } from '../types'
-import { BASE_RULES, DICTATION_MODES } from '../constants/modes'
+import { DICTATION_MODES } from '../constants/modes'
+import {
+  BASE_RULES,
+  REWRITE_SYSTEM_PROMPT_PREFIX,
+  REWRITE_SYSTEM_PROMPT_SUFFIX,
+  REVISE_PROMPT_SYSTEM_PROMPT_PREFIX,
+  REVISE_PROMPT_SYSTEM_PROMPT_SUFFIX,
+  ANALYSIS_SYSTEM_PROMPT,
+  ANALYSIS_USER_PROMPT_TEMPLATE,
+} from '../constants/prompts'
 import { processTextViaProxy, chatViaProxy } from './proxyService'
 
 // Build the system prompt and user message for text processing (used by proxy path)
@@ -46,15 +55,13 @@ export function buildRewritePrompt(
   originalText: string,
   instruction: string,
 ): { systemPrompt: string; userMessage: string } {
-  const systemPrompt = `You are a text editor. The user previously dictated the following text:
+  const systemPrompt = `${REWRITE_SYSTEM_PROMPT_PREFIX}
 
 ---
 ${originalText}
 ---
 
-The user is now giving you a voice instruction to modify that text. Apply their requested changes.
-Preserve meaning and tone unless the instruction specifically asks to change it.
-Output ONLY the full modified text. No commentary, no preamble, no quotes.`
+${REWRITE_SYSTEM_PROMPT_SUFFIX}`
 
   return { systemPrompt, userMessage: instruction }
 }
@@ -65,14 +72,14 @@ export async function revisePrompt(
   userInstruction: string,
   settings: Settings
 ): Promise<string> {
-  const systemPrompt = `You are a prompt engineer assistant. Your job is to REVISE an existing dictation mode prompt based on the user's instruction. Do NOT rewrite from scratch. Keep the original intent and wording as much as possible, and incorporate the user's requested change.
+  const systemPrompt = `${REVISE_PROMPT_SYSTEM_PROMPT_PREFIX}
 
 CURRENT PROMPT:
 ---
 ${currentPrompt}
 ---
 
-Output ONLY the revised prompt text. No commentary, no explanation, no quotes around it.`
+${REVISE_PROMPT_SYSTEM_PROMPT_SUFFIX}`
 
   return await processTextViaProxy(userInstruction, systemPrompt, settings.llmProvider)
 }
@@ -97,32 +104,12 @@ export async function analyzeEdits(
   if (originalText.trim() === editedText.trim()) return null
   if (originalText.length < 10 || editedText.length < 10) return null
 
-  const prompt = `You are analyzing edits a user made to dictated text to learn their preferences.
-
-ORIGINAL TEXT (after AI processing):
-"${originalText}"
-
-USER'S EDITED VERSION:
-"${editedText}"
-
-CONTEXT: This text was for the "${modeId}" dictation mode.
-
-Analyze what the user changed and why. If you can identify a clear, reusable pattern or preference, respond with EXACTLY this JSON format:
-{"description": "Brief human-readable description of the pattern", "rule": "Specific rule to apply in future processing"}
-
-If the changes are too minor, random, or context-specific to be a useful pattern, respond with exactly: null
-
-Examples of good patterns:
-{"description": "Prefers 'Hi' over 'Hello' in emails", "rule": "Use 'Hi' instead of 'Hello' as email greetings"}
-{"description": "Removes exclamation marks in professional context", "rule": "Avoid exclamation marks in professional emails"}
-{"description": "Always spells out numbers under 10", "rule": "Spell out numbers one through nine instead of using digits"}
-
-Respond with ONLY the JSON or null, nothing else.`
+  const prompt = ANALYSIS_USER_PROMPT_TEMPLATE(originalText, editedText, modeId)
 
   try {
     const response = await processTextViaProxy(
       prompt,
-      'You are a text analysis assistant. Respond only with valid JSON or the word null.',
+      ANALYSIS_SYSTEM_PROMPT,
       settings.llmProvider
     )
 
@@ -138,8 +125,8 @@ Respond with ONLY the JSON or null, nothing else.`
       return { description: parsed.description, rule: parsed.rule }
     }
     return null
-  } catch (error) {
-    console.error('Edit analysis failed:', error)
+  } catch (error: unknown) {
+    console.error('[Prattle] Edit analysis failed:', error)
     return null
   }
 }

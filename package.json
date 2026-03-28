@@ -1,6 +1,6 @@
 {
   "name": "prattle",
-  "version": "2.1.6",
+  "version": "2.2.1",
   "description": "A smart voice-to-text desktop app with learning capabilities",
   "main": "dist-electron/main.js",
   "scripts": {
@@ -12,7 +12,6 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.98.0",
-    "diff": "^7.0.0",
     "electron-updater": "^6.8.3",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
@@ -23,13 +22,11 @@
     "ticketdeck": "file:../ticketdeck"
   },
   "devDependencies": {
-    "@types/diff": "^6.0.0",
     "@types/react": "^18.3.18",
     "@types/react-dom": "^18.3.5",
     "@types/uuid": "^10.0.0",
     "@vitejs/plugin-react": "^4.3.4",
     "autoprefixer": "^10.4.20",
-    "concurrently": "^9.1.2",
     "electron": "^34.2.0",
     "electron-builder": "^25.1.8",
     "postcss": "^8.5.1",
@@ -37,8 +34,7 @@
     "typescript": "^5.7.3",
     "vite": "^6.1.0",
     "vite-plugin-electron": "^0.28.8",
-    "vite-plugin-electron-renderer": "^0.14.6",
-    "wait-on": "^8.0.3"
+    "vite-plugin-electron-renderer": "^0.14.6"
   },
   "build": {
     "appId": "com.prattle.app",
@@ -70,6 +66,7 @@
     "win": {
       "target": "nsis",
       "icon": "build/icon.ico",
+      "executableName": "Prattle",
       "signAndEditExecutable": false
     },
     "artifactName": "${productName}-Setup-${version}.${ext}",

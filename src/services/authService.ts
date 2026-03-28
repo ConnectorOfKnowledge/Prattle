@@ -1,5 +1,7 @@
 import { createClient, SupabaseClient, Session } from '@supabase/supabase-js'
 import { fetchWithTimeout } from '../utils/fetchWithTimeout'
+import { PROXY_BASE } from '../constants/config'
+import type { SubscriptionResponse } from '../types'
 
 // Shared Supabase project (same as BrainLink, TicketDeck, etc.)
 // These are public keys -- safe to embed in client code
@@ -124,25 +126,27 @@ export async function getSession(): Promise<Session | null> {
 }
 
 export async function getAccessToken(): Promise<string | null> {
-  const session = await getSession()
-  return session?.access_token || null
+  const sb = getSupabase()
+  // Try cached session first
+  const { data: { session: cached } } = await sb.auth.getSession()
+  if (cached?.access_token) {
+    // Check if the JWT is expired or about to expire (within 60s)
+    const exp = cached.expires_at ? cached.expires_at * 1000 : 0
+    if (exp > Date.now() + 60_000) {
+      return cached.access_token
+    }
+  }
+  // Cached token is expired or missing -- try refreshing
+  try {
+    const { data: { session: refreshed } } = await sb.auth.refreshSession()
+    if (refreshed?.access_token) return refreshed.access_token
+  } catch {
+    // Refresh failed -- return null instead of the known-expired token
+  }
+  return null
 }
 
 // --- Subscription (for future paid tier) ---
-
-export interface SubscriptionInfo {
-  status: 'active' | 'canceled' | 'past_due' | 'none'
-  plan: 'monthly' | 'annual' | 'free'
-  currentPeriodEnd?: string
-  cancelAtPeriodEnd?: boolean
-}
-
-const PROXY_BASE = 'https://prattle.app'
-
-export interface SubscriptionResponse extends SubscriptionInfo {
-  accessType?: 'subscription' | 'trial' | 'family' | 'expired'
-  trialEndsAt?: string
-}
 
 export async function getSubscriptionStatus(): Promise<SubscriptionResponse> {
   const token = await getAccessToken()
@@ -157,56 +161,54 @@ export async function getSubscriptionStatus(): Promise<SubscriptionResponse> {
     })
 
     if (!response.ok) {
-      return { status: 'none', plan: 'free' }
+      throw new Error(`Subscription check failed: ${response.status}`)
     }
 
     return await response.json()
-  } catch {
-    // Network error -- assume free tier
-    return { status: 'none', plan: 'free' }
+  } catch (error: unknown) {
+    // Re-throw so callers can distinguish "network down" from "no subscription"
+    throw error instanceof Error
+      ? error
+      : new Error('Failed to check subscription status')
   }
 }
 
 export async function getCheckoutUrl(priceId: string): Promise<string | null> {
   const token = await getAccessToken()
-  if (!token) return null
+  if (!token) throw new Error('Not authenticated -- cannot create checkout session')
 
-  try {
-    const response = await fetchWithTimeout(`${PROXY_BASE}/api/stripe/checkout`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ priceId }),
-      timeout: 5000,
-    })
+  const response = await fetchWithTimeout(`${PROXY_BASE}/api/stripe/checkout`, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ priceId }),
+    timeout: 5000,
+  })
 
-    if (!response.ok) return null
-    const { url } = await response.json()
-    return url
-  } catch {
-    return null
+  if (!response.ok) {
+    throw new Error(`Checkout session failed: ${response.status}`)
   }
+  const { url } = await response.json()
+  return url
 }
 
 export async function getPortalUrl(): Promise<string | null> {
   const token = await getAccessToken()
-  if (!token) return null
+  if (!token) throw new Error('Not authenticated -- cannot open billing portal')
 
-  try {
-    const response = await fetchWithTimeout(`${PROXY_BASE}/api/stripe/portal`, {
-      method: 'POST',
-      headers: { 'Authorization': `Bearer ${token}` },
-      timeout: 5000,
-    })
+  const response = await fetchWithTimeout(`${PROXY_BASE}/api/stripe/portal`, {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${token}` },
+    timeout: 5000,
+  })
 
-    if (!response.ok) return null
-    const { url } = await response.json()
-    return url
-  } catch {
-    return null
+  if (!response.ok) {
+    throw new Error(`Billing portal request failed: ${response.status}`)
   }
+  const { url } = await response.json()
+  return url
 }
 
 export function onAuthStateChange(callback: (session: Session | null) => void) {

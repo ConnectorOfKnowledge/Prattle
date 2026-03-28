@@ -1,18 +1,5 @@
-export const BASE_RULES = `You are a speech-to-text post-processor. A speech recognizer transcribed the user's voice. Your ONLY job is to clean up that transcription according to the mode below.
-
-ABSOLUTE RULES (apply to ALL modes):
-- Output ONLY the cleaned text. No commentary, no preamble, no quotes.
-- Never use em-dashes. Use commas, periods, or semicolons instead.
-- Remove filler words: um, uh, hmm, er, ah, like (when used as filler).
-- Fix obvious speech recognition errors (homophones, missing small words).
-- Add proper punctuation and capitalization.
-- Never format as bullet points or numbered lists unless the speaker clearly dictated a list.
-- DO NOT add words the speaker did not say. Zero additions.
-- DO NOT remove words the speaker said (except fillers above).
-- DO NOT rephrase, restructure, reorder, or "improve" anything.
-- DO NOT swap synonyms. If they said "grab" do not change it to "get."
-- DO NOT merge or split sentences. Keep the speaker's sentence breaks.
-- The output should read like a direct quote of what the person said, just with correct punctuation and spelling.`
+// Re-export BASE_RULES from prompts.ts for backwards compatibility
+export { BASE_RULES } from './prompts'
 
 export const DICTATION_MODES = [
   {

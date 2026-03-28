@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { Settings, Dictionary, LearnedPatterns, ChatMessage, UserProfile } from '../types'
+import type { Settings, Dictionary, LearnedPatterns, ChatMessage, UserProfile, SubscriptionResponse } from '../types'
 import type { RecordingState } from '../constants/modes'
 
 interface AppState {
@@ -43,7 +43,6 @@ interface AppState {
 
   // Auth actions
   setUser: (user: UserProfile | null) => void
-  setIsAuthenticated: (auth: boolean) => void
   setIsCheckingAuth: (checking: boolean) => void
 
   // Chat panel actions
@@ -107,7 +106,6 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   // Auth actions
   setUser: (user) => set({ user, isAuthenticated: !!user }),
-  setIsAuthenticated: (isAuthenticated) => set({ isAuthenticated }),
   setIsCheckingAuth: (isCheckingAuth) => set({ isCheckingAuth }),
 
   // Chat panel actions
@@ -120,21 +118,25 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   // Subscription
   refreshSubscription: async () => {
-    const { getSubscriptionStatus } = await import('../services/authService')
-    const status = await getSubscriptionStatus()
-    const currentUser = get().user
-    if (currentUser) {
-      set({
-        user: {
-          ...currentUser,
-          subscriptionStatus: status.status as any,
-          plan: status.plan as any,
-          accessType: (status as any).accessType || 'expired',
-          trialEndsAt: (status as any).trialEndsAt,
-          currentPeriodEnd: status.currentPeriodEnd,
-          cancelAtPeriodEnd: status.cancelAtPeriodEnd,
-        }
-      })
+    try {
+      const { getSubscriptionStatus } = await import('../services/authService')
+      const status: SubscriptionResponse = await getSubscriptionStatus()
+      const currentUser = get().user
+      if (currentUser) {
+        set({
+          user: {
+            ...currentUser,
+            subscriptionStatus: status.status,
+            plan: status.plan,
+            accessType: status.accessType || 'expired',
+            trialEndsAt: status.trialEndsAt,
+            currentPeriodEnd: status.currentPeriodEnd,
+            cancelAtPeriodEnd: status.cancelAtPeriodEnd,
+          }
+        })
+      }
+    } catch (err) {
+      console.error('[Prattle] Failed to refresh subscription:', err)
     }
   },
 
@@ -153,17 +155,29 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   saveSettingsToFile: async (settings) => {
-    await window.electronAPI.saveSettings(settings)
-    set({ settings })
+    try {
+      await window.electronAPI.saveSettings(settings)
+      set({ settings })
+    } catch (err) {
+      console.error('[Prattle] Failed to save settings:', err)
+    }
   },
 
   saveDictionaryToFile: async (dictionary) => {
-    await window.electronAPI.saveDictionary(dictionary)
-    set({ dictionary })
+    try {
+      await window.electronAPI.saveDictionary(dictionary)
+      set({ dictionary })
+    } catch (err) {
+      console.error('[Prattle] Failed to save dictionary:', err)
+    }
   },
 
   saveLearnedPatternsToFile: async (patterns) => {
-    await window.electronAPI.saveLearnedPatterns(patterns)
-    set({ learnedPatterns: patterns })
+    try {
+      await window.electronAPI.saveLearnedPatterns(patterns)
+      set({ learnedPatterns: patterns })
+    } catch (err) {
+      console.error('[Prattle] Failed to save learned patterns:', err)
+    }
   },
 }))

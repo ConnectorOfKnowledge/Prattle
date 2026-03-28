@@ -1,7 +1,7 @@
 import { getAccessToken } from './authService'
 import { fetchWithTimeout } from '../utils/fetchWithTimeout'
-
-const PROXY_BASE = 'https://prattle.app'
+import { PROXY_BASE } from '../constants/config'
+import { MIN_AUDIO_BLOB_SIZE } from './transcriptionProviders'
 
 // Convert Blob to base64 string
 async function blobToBase64(blob: Blob): Promise<string> {
@@ -53,8 +53,7 @@ export async function transcribeViaProxy(
   if (!token) throw new Error('Not authenticated')
 
   // Skip tiny audio blobs that would fail at Deepgram (corrupt/empty webm container)
-  if (audioBlob.size < 3000) {
-    console.log(`[Prattle] Audio blob too small for proxy (${audioBlob.size} bytes), skipping`)
+  if (audioBlob.size < MIN_AUDIO_BLOB_SIZE) {
     return ''
   }
 

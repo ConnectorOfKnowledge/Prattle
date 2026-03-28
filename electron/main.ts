@@ -1,27 +1,24 @@
-import { app, BrowserWindow, ipcMain, dialog, clipboard, screen, Tray, Menu, nativeImage, shell } from 'electron'
+import { app, BrowserWindow } from 'electron'
 import path from 'path'
-import fs from 'fs'
-import { exec, execFile } from 'child_process'
-import { uIOhook, UiohookKey } from 'uiohook-napi'
-import { autoUpdater } from 'electron-updater'
-
-const isDev = !app.isPackaged
-
-// Path to the pre-compiled C++ helper that simulates Ctrl+V via Win32 SendInput
-// with hardware scan codes. This works in Chrome (unlike PowerShell/keybd_event).
-const pasteHelperPath = isDev
-  ? path.join(__dirname, '../../resources/paste_helper.exe')
-  : path.join(process.resourcesPath, 'paste_helper.exe')
+import { ensureUserDataDir, initializeDefaultData, readJsonFile } from './dataStore'
+import { stopPersistentPowerShell } from './foregroundTracker'
+import { setupHotkeySystem, stopHotkeySystem } from './hotkeySystem'
+import { createWindow, createIndicatorWindow, sendToRenderer, showIndicator, sendToIndicator, getMainWindow } from './windowManager'
+import { createTray } from './trayManager'
+import { setupAutoUpdater } from './autoUpdater'
+import { registerIpcHandlers } from './ipcHandlers'
 
 // Set the app name so Task Manager shows "Prattle" instead of "Electron"
 app.setName('Prattle')
 
+// Shared mutable flag for quit state, passed by reference to modules
+const isQuittingRef = { value: false }
+
+// Store the OAuth callback URL if we receive it before the window is ready
+let pendingOAuthUrl: string | null = null
+
 // Register prattle:// as a custom protocol for OAuth callbacks.
-// When Google redirects to prattle://auth/callback?code=..., the OS routes
-// it to this app. We catch it and forward the URL to the renderer for
-// session exchange.
 if (process.defaultApp) {
-  // In dev, we need to register with the path to electron
   if (process.argv.length >= 2) {
     app.setAsDefaultProtocolClient('prattle', process.execPath, [path.resolve(process.argv[1])])
   }
@@ -29,750 +26,34 @@ if (process.defaultApp) {
   app.setAsDefaultProtocolClient('prattle')
 }
 
-// Store the OAuth callback URL if we receive it before the window is ready
-let pendingOAuthUrl: string | null = null
-
-// User data directory for settings, dictionary, learned patterns
-const userDataPath = path.join(app.getPath('userData'), 'prattle-data')
-const legacyDataPath = path.join(app.getPath('userData'), 'voicetype-data')
-
-function ensureUserDataDir() {
-  if (!fs.existsSync(userDataPath)) {
-    fs.mkdirSync(userDataPath, { recursive: true })
-  }
-  // Migrate legacy voicetype-data to prattle-data
-  if (fs.existsSync(legacyDataPath)) {
-    try {
-      const files = fs.readdirSync(legacyDataPath)
-      for (const file of files) {
-        const src = path.join(legacyDataPath, file)
-        const dest = path.join(userDataPath, file)
-        if (!fs.existsSync(dest)) {
-          fs.copyFileSync(src, dest)
-        }
-      }
-      console.log('[Prattle] Migrated data from voicetype-data to prattle-data')
-    } catch (e) {
-      console.error('[Prattle] Migration error:', e)
-    }
-  }
-}
-
-function getDataFilePath(filename: string): string {
-  return path.join(userDataPath, filename)
-}
-
-function readJsonFile(filename: string, defaultValue: any = {}): any {
-  const filePath = getDataFilePath(filename)
-  try {
-    if (fs.existsSync(filePath)) {
-      const data = fs.readFileSync(filePath, 'utf-8')
-      return JSON.parse(data)
-    }
-  } catch (e) {
-    console.error(`Error reading ${filename}:`, e)
-  }
-  return defaultValue
-}
-
-function writeJsonFile(filename: string, data: any): void {
-  const filePath = getDataFilePath(filename)
-  try {
-    fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf-8')
-  } catch (e) {
-    console.error(`Error writing ${filename}:`, e)
-  }
-}
-
-let mainWindow: BrowserWindow | null = null
-let indicatorWindow: BrowserWindow | null = null
-let indicatorReady = false // Track whether indicator renderer has loaded and is ready for IPC
-let tray: Tray | null = null
-let isQuitting = false
-let lastForegroundWindow: string = '' // Track foreground window title for text targeting
-
-// ---- Hotkey state tracking ----
-let ctrlDown = false
-let shiftDown = false
-let altDown = false
-let triggerKeyDown = false
-let lastTriggerPressTime = 0
-let isHoldRecording = false
-let isHandsFreeMode = false
-let hasLastCommittedText = false // Track if there's text available for rewrite
-let stopDelayTimeout: ReturnType<typeof setTimeout> | null = null // Delayed stop for double-tap detection
-
-const DOUBLE_TAP_WINDOW = 400 // ms — window between keydown events for double-tap detection
-const STOP_DELAY = 250 // ms — delay before processing on keyup (allows double-tap cancel)
-
-// ---- Foreground window tracking ----
-// Detect the active window title so the user knows where text will be pasted.
-// Uses a persistent PowerShell process with pre-compiled C# type to avoid the
-// massive overhead of spawning a new PowerShell + compiling Add-Type on every poll.
-let foregroundPsProcess: ReturnType<typeof exec> | null = null
-let foregroundPsReady = false
-
-// Returns the window title of the foreground app, or empty string on failure.
-// When the persistent PS process is available, sends a command to it;
-// otherwise falls back to a lightweight one-shot command.
-function getForegroundWindowTitle(): Promise<string> {
-  return new Promise((resolve) => {
-    // Use the persistent PowerShell process if it's ready
-    if (foregroundPsProcess && foregroundPsReady) {
-      // Write a command that outputs the title followed by a sentinel line
-      foregroundPsProcess.stdin?.write('Write-Output ([FgHelper]::GetTitle()); Write-Output "---END---"\n')
-
-      let output = ''
-      const onData = (chunk: Buffer | string) => {
-        output += chunk.toString()
-        if (output.includes('---END---')) {
-          foregroundPsProcess?.stdout?.removeListener('data', onData)
-          const lines = output.split('\n').map(l => l.trim()).filter(l => l && l !== '---END---')
-          resolve(lines[0] || '')
-        }
-      }
-      foregroundPsProcess.stdout?.on('data', onData)
-
-      // Safety timeout -- don't hang forever
-      setTimeout(() => {
-        foregroundPsProcess?.stdout?.removeListener('data', onData)
-        if (!output.includes('---END---')) resolve('')
-      }, 1000)
-      return
-    }
-
-    // Fallback: lightweight one-shot (faster than the old Add-Type approach)
-    exec(
-      'powershell -NoProfile -Command "[Console]::OutputEncoding = [Text.Encoding]::UTF8; Add-Type -TypeDefinition \'using System; using System.Runtime.InteropServices; using System.Text; public class FgW { [DllImport(\"user32.dll\")] static extern IntPtr GetForegroundWindow(); [DllImport(\"user32.dll\", CharSet = CharSet.Unicode)] static extern int GetWindowText(IntPtr hWnd, StringBuilder sb, int count); public static string Get() { var sb = new StringBuilder(256); GetWindowText(GetForegroundWindow(), sb, 256); return sb.ToString(); } }\'; [FgW]::Get()"',
-      { timeout: 3000 },
-      (error, stdout) => {
-        resolve(error ? '' : stdout.trim())
-      }
-    )
-  })
-}
-
-// Start a persistent PowerShell process with the C# type pre-compiled.
-// This makes subsequent GetTitle() calls near-instant instead of ~500ms each.
-function startPersistentPowerShell() {
-  if (foregroundPsProcess) return
-
-  foregroundPsProcess = exec(
-    'powershell -NoProfile -NoExit -Command "-"',
-    { timeout: 0 } // No timeout for persistent process
-  )
-
-  // Pre-compile the C# helper type and define a convenience function
-  const initScript = `
-Add-Type -TypeDefinition '
-using System;
-using System.Runtime.InteropServices;
-using System.Text;
-public class FgHelper {
-  [DllImport("user32.dll")]
-  static extern IntPtr GetForegroundWindow();
-  [DllImport("user32.dll", CharSet = CharSet.Unicode)]
-  static extern int GetWindowText(IntPtr hWnd, StringBuilder sb, int count);
-  public static string GetTitle() {
-    var sb = new StringBuilder(256);
-    GetWindowText(GetForegroundWindow(), sb, 256);
-    return sb.ToString();
-  }
-}
-'
-Write-Output "---READY---"
-`
-  foregroundPsProcess.stdin?.write(initScript + '\n')
-
-  // Wait for the READY signal
-  let initOutput = ''
-  const onInit = (chunk: Buffer | string) => {
-    initOutput += chunk.toString()
-    if (initOutput.includes('---READY---')) {
-      foregroundPsProcess?.stdout?.removeListener('data', onInit)
-      foregroundPsReady = true
-      console.log('[Prattle] Persistent PowerShell ready for foreground tracking')
-    }
-  }
-  foregroundPsProcess.stdout?.on('data', onInit)
-
-  foregroundPsProcess.on('exit', () => {
-    foregroundPsProcess = null
-    foregroundPsReady = false
-  })
-
-  foregroundPsProcess.on('error', (err) => {
-    console.error('[Prattle] Persistent PowerShell error:', err)
-    foregroundPsProcess = null
-    foregroundPsReady = false
-  })
-}
-
-function stopPersistentPowerShell() {
-  if (foregroundPsProcess) {
-    try {
-      foregroundPsProcess.stdin?.write('exit\n')
-      foregroundPsProcess.kill()
-    } catch {}
-    foregroundPsProcess = null
-    foregroundPsReady = false
-  }
-}
-
-// Periodically track foreground window when recording (so indicator shows target)
-let foregroundTrackingInterval: ReturnType<typeof setInterval> | null = null
-
-function startForegroundTracking() {
-  if (foregroundTrackingInterval) return
-
-  // Start the persistent PS process for fast polling
-  startPersistentPowerShell()
-
-  // Immediately capture the current foreground window
-  getForegroundWindowTitle().then(title => {
-    if (title && !title.includes('Prattle')) {
-      lastForegroundWindow = title
-      sendToIndicator('target-window', title)
-      sendToRenderer('target-window', title)
-    }
-  })
-  foregroundTrackingInterval = setInterval(async () => {
-    const title = await getForegroundWindowTitle()
-    if (title && !title.includes('Prattle') && title !== lastForegroundWindow) {
-      lastForegroundWindow = title
-      sendToIndicator('target-window', title)
-      sendToRenderer('target-window', title)
-    }
-  }, 1000)
-}
-
-function stopForegroundTracking() {
-  if (foregroundTrackingInterval) {
-    clearInterval(foregroundTrackingInterval)
-    foregroundTrackingInterval = null
-  }
-  stopPersistentPowerShell()
-}
-
-// ---- Configurable hotkey system ----
-// Map friendly key names to uiohook keycodes
-const KEY_NAME_TO_KEYCODE: Record<string, number> = {
-  'Space': UiohookKey.Space,
-  'Insert': UiohookKey.Insert,
-  'Delete': UiohookKey.Delete,
-  'Home': UiohookKey.Home,
-  'End': UiohookKey.End,
-  'PageUp': UiohookKey.PageUp,
-  'PageDown': UiohookKey.PageDown,
-  'Pause': 0xE046, // Pause/Break key (not in UiohookKey enum)
-  'ScrollLock': UiohookKey.ScrollLock,
-  'PrintScreen': UiohookKey.PrintScreen,
-  'F1': UiohookKey.F1,
-  'F2': UiohookKey.F2,
-  'F3': UiohookKey.F3,
-  'F4': UiohookKey.F4,
-  'F5': UiohookKey.F5,
-  'F6': UiohookKey.F6,
-  'F7': UiohookKey.F7,
-  'F8': UiohookKey.F8,
-  'F9': UiohookKey.F9,
-  'F10': UiohookKey.F10,
-  'F11': UiohookKey.F11,
-  'F12': UiohookKey.F12,
-  'RightAlt': UiohookKey.AltRight,
-  'RightCtrl': UiohookKey.CtrlRight,
-  'RightShift': UiohookKey.ShiftRight,
-}
-
-interface HotkeyConfig {
-  requireCtrl: boolean
-  requireShift: boolean
-  requireAlt: boolean
-  triggerKeycode: number
-}
-
-let activeHotkey: HotkeyConfig = {
-  requireCtrl: false,
-  requireShift: false,
-  requireAlt: false,
-  triggerKeycode: UiohookKey.AltRight, // Default: Right Alt
-}
-
-function parseHotkeyString(hotkey: string): HotkeyConfig {
-  const parts = hotkey.split('+').map(p => p.trim())
-  const config: HotkeyConfig = {
-    requireCtrl: false,
-    requireShift: false,
-    requireAlt: false,
-    triggerKeycode: UiohookKey.AltRight,
-  }
-
-  // Last part is the trigger key, everything before is modifiers
-  const triggerName = parts.pop() || 'RightAlt'
-  for (const mod of parts) {
-    const lower = mod.toLowerCase()
-    if (lower === 'ctrl' || lower === 'control') config.requireCtrl = true
-    else if (lower === 'shift') config.requireShift = true
-    else if (lower === 'alt') config.requireAlt = true
-  }
-
-  // Look up the trigger keycode
-  config.triggerKeycode = KEY_NAME_TO_KEYCODE[triggerName] ?? UiohookKey.AltRight
-
-  return config
-}
-
-function modifiersMatch(): boolean {
-  if (activeHotkey.requireCtrl && !ctrlDown) return false
-  if (activeHotkey.requireShift && !shiftDown) return false
-  if (activeHotkey.requireAlt && !altDown) return false
-  return true
-}
-
-function createWindow() {
-  mainWindow = new BrowserWindow({
-    width: 700,
-    height: 450,
-    minWidth: 500,
-    minHeight: 300,
-    title: 'Prattle',
-    icon: path.join(__dirname, '../public/icon.png'),
-    webPreferences: {
-      preload: path.join(__dirname, 'preload.js'),
-      contextIsolation: true,
-      nodeIntegration: false,
-    },
-    frame: true,
-    backgroundColor: '#0D0D1A',
-    titleBarStyle: 'default',
-  })
-
-  if (isDev) {
-    mainWindow.loadURL('http://localhost:5173')
-  } else {
-    mainWindow.loadFile(path.join(__dirname, '../dist/index.html'))
-  }
-
-  // Close button hides to tray instead of quitting
-  mainWindow.on('close', (event) => {
-    if (!isQuitting) {
-      event.preventDefault()
-      mainWindow?.hide()
-    }
-  })
-
-  mainWindow.on('closed', () => {
-    mainWindow = null
-  })
-}
-
-// Queue of messages to send to the indicator once its renderer is ready.
-// Messages sent before the renderer loads are silently lost -- this buffer
-// catches them and replays once `did-finish-load` fires.
-let indicatorPendingMessages: { channel: string; args: any[] }[] = []
-
-function createIndicatorWindow() {
-  if (indicatorWindow && !indicatorWindow.isDestroyed()) return
-
-  indicatorReady = false
-
-  const primaryDisplay = screen.getPrimaryDisplay()
-  const { width: screenW } = primaryDisplay.workAreaSize
-  const indicatorW = 420
-  const indicatorH = 100
-
-  indicatorWindow = new BrowserWindow({
-    width: indicatorW,
-    height: indicatorH,
-    x: Math.round((screenW - indicatorW) / 2),
-    y: 20,
-    frame: false,
-    alwaysOnTop: true,
-    skipTaskbar: true,
-    resizable: false,
-    minimizable: false,
-    maximizable: false,
-    focusable: false,
-    transparent: true,
-    show: false, // Start hidden -- pre-created on app launch
-    backgroundColor: '#00000000',
-    webPreferences: {
-      preload: path.join(__dirname, 'preload.js'),
-      contextIsolation: true,
-      nodeIntegration: false,
-    },
-  })
-
-  // Mark the indicator as ready once its renderer finishes loading.
-  // This is the safe point to start sending IPC messages and showing the window.
-  indicatorWindow.webContents.once('did-finish-load', () => {
-    indicatorReady = true
-
-    // If showIndicator() was called while we were loading, show now
-    if (indicatorShouldShow && indicatorWindow && !indicatorWindow.isDestroyed()) {
-      indicatorWindow.show()
-    }
-
-    // Flush any messages that were queued while the renderer was loading
-    for (const msg of indicatorPendingMessages) {
-      if (indicatorWindow && !indicatorWindow.isDestroyed()) {
-        indicatorWindow.webContents.send(msg.channel, ...msg.args)
-      }
-    }
-    indicatorPendingMessages = []
-  })
-
-  if (isDev) {
-    indicatorWindow.loadURL('http://localhost:5173/?indicator=true')
-  } else {
-    indicatorWindow.loadFile(path.join(__dirname, '../dist/index.html'), {
-      query: { indicator: 'true' }
-    })
-  }
-
-  indicatorWindow.on('closed', () => {
-    indicatorWindow = null
-    indicatorReady = false
-  })
-
-  // If the indicator renderer crashes, recreate the window so it's ready
-  // for the next recording session instead of silently staying dead.
-  indicatorWindow.webContents.on('render-process-gone', (_event, details) => {
-    console.error('[Prattle] Indicator renderer crashed:', details.reason)
-    indicatorWindow = null
-    indicatorReady = false
-    // Recreate after a brief delay to avoid tight crash loops
-    setTimeout(() => createIndicatorWindow(), 500)
-  })
-}
-
-// Whether the indicator should be visible. When true, the indicator will be
-// shown as soon as the window is ready (or immediately if already ready).
-let indicatorShouldShow = false
-
-function showIndicator() {
-  indicatorShouldShow = true
-
-  if (!indicatorWindow || indicatorWindow.isDestroyed()) {
-    createIndicatorWindow()
-    // The `did-finish-load` handler in createIndicatorWindow checks
-    // indicatorShouldShow and calls .show() when appropriate.
-  } else {
-    // Re-assert alwaysOnTop at the highest level each time we show.
-    // Without this, other always-on-top windows (fullscreen apps, screen
-    // recorders, etc.) can steal the z-order and the indicator disappears
-    // even though it is technically "visible".
-    indicatorWindow.setAlwaysOnTop(true, 'screen-saver')
-    indicatorWindow.show()
-  }
-}
-
-function hideIndicator() {
-  indicatorShouldShow = false
-
-  // Clear any pending messages -- if we're hiding, we don't want stale
-  // 'start' or 'stop' commands replaying when the renderer finishes loading.
-  indicatorPendingMessages = []
-
-  if (indicatorWindow && !indicatorWindow.isDestroyed()) {
-    // Tell the indicator component to reset its state before hiding
-    if (indicatorReady) {
-      indicatorWindow.webContents.send('recording-command', 'done')
-    }
-    indicatorWindow.hide()
-  }
-}
-
-function sendToRenderer(channel: string, ...args: any[]) {
+// Handle OAuth callback URL from custom protocol
+function handleOAuthCallback(url: string) {
+  console.log('[Prattle] OAuth callback received:', url.substring(0, 80) + '...')
+  const mainWindow = getMainWindow()
   if (mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.webContents.send(channel, ...args)
+    mainWindow.webContents.send('oauth-callback', url)
+    mainWindow.show()
+    mainWindow.focus()
+  } else {
+    pendingOAuthUrl = url
   }
-}
-
-function sendToIndicator(channel: string, ...args: any[]) {
-  if (indicatorWindow && !indicatorWindow.isDestroyed()) {
-    if (indicatorReady) {
-      indicatorWindow.webContents.send(channel, ...args)
-    } else {
-      // Renderer hasn't finished loading yet -- queue the message so it
-      // gets delivered once `did-finish-load` fires.
-      indicatorPendingMessages.push({ channel, args })
-    }
-  }
-}
-
-// ---- uiohook-napi hotkey system ----
-// Behavior:
-//   HOLD the hotkey     → record while held, process + auto-type on release
-//   DOUBLE-TAP          → toggle hands-free mode (continuous recording)
-//   TAP during hands-free → stop recording and auto-type the result
-function setupHotkeySystem() {
-  // Load hotkey from settings
-  const settings = readJsonFile('settings.json')
-  const hotkeyStr = settings.hotkey || 'RightAlt'
-  activeHotkey = parseHotkeyString(hotkeyStr)
-  console.log(`[Prattle] Hotkey set to: ${hotkeyStr} (keycode ${activeHotkey.triggerKeycode})`)
-
-  // Log first few key events for diagnostics
-  let keyEventCount = 0
-
-  uIOhook.on('keydown', (e) => {
-    // Log first 5 key events to confirm uiohook is receiving input
-    if (keyEventCount < 5) {
-      keyEventCount++
-      console.log(`[Prattle] Key event #${keyEventCount}: keycode=${e.keycode} (trigger=${activeHotkey.triggerKeycode})`)
-    }
-
-    // Track modifier states (always, regardless of hotkey config)
-    if (e.keycode === UiohookKey.Ctrl || e.keycode === UiohookKey.CtrlRight) ctrlDown = true
-    if (e.keycode === UiohookKey.Shift || e.keycode === UiohookKey.ShiftRight) shiftDown = true
-    if (e.keycode === UiohookKey.Alt || e.keycode === UiohookKey.AltRight) altDown = true
-
-    // Check if trigger key pressed
-    if (e.keycode === activeHotkey.triggerKeycode) {
-      if (triggerKeyDown) return // Already down, ignore repeat
-      triggerKeyDown = true
-
-      // Check if required modifiers are held
-      if (!modifiersMatch()) return
-
-      const now = Date.now()
-      const timeSinceLastPress = now - lastTriggerPressTime
-      lastTriggerPressTime = now
-
-      if (timeSinceLastPress < DOUBLE_TAP_WINDOW) {
-        // Double-tap detected
-        const stopAlreadyFired = !stopDelayTimeout
-        if (stopDelayTimeout) {
-          clearTimeout(stopDelayTimeout)
-          stopDelayTimeout = null
-        }
-
-        // Toggle hands-free mode
-        if (isHandsFreeMode) {
-          // Stop hands-free recording
-          isHandsFreeMode = false
-          isHoldRecording = false
-          stopForegroundTracking()
-          sendToRenderer('recording-command', 'stop')
-          sendToIndicator('recording-command', 'stop')
-        } else {
-          // Start hands-free recording
-          isHandsFreeMode = true
-          isHoldRecording = false
-
-          if (stopAlreadyFired) {
-            // The STOP_DELAY already fired and sent 'stop' to the renderer,
-            // so the recording was already stopped/processing. We need to
-            // start a fresh recording in hands-free mode.
-            startForegroundTracking()
-            sendToRenderer('recording-command', 'start-handsfree')
-          }
-          // If stop hadn't fired yet, the recording is still running --
-          // just switch modes without restarting
-          showIndicator()
-          sendToIndicator('recording-command', 'start-handsfree')
-        }
-      } else if (!isHandsFreeMode) {
-        // Single press: start hold-to-record
-        // ALWAYS start a fresh dictation. Rewrite mode should only activate
-        // via the explicit Rewrite button in the UI, never automatically.
-        // The old behavior (auto-rewrite when committed text exists) caused
-        // the AI to interpret new speech as modification instructions on
-        // the previous text, producing bizarre outputs.
-        isHoldRecording = true
-        startForegroundTracking()
-        sendToRenderer('recording-command', 'start')
-        showIndicator()
-        sendToIndicator('recording-command', 'start')
-      }
-    }
-  })
-
-  uIOhook.on('keyup', (e) => {
-    // Track modifier states
-    if (e.keycode === UiohookKey.Ctrl || e.keycode === UiohookKey.CtrlRight) ctrlDown = false
-    if (e.keycode === UiohookKey.Shift || e.keycode === UiohookKey.ShiftRight) shiftDown = false
-    if (e.keycode === UiohookKey.Alt || e.keycode === UiohookKey.AltRight) altDown = false
-
-    // Check if trigger key released
-    if (e.keycode === activeHotkey.triggerKeycode) {
-      triggerKeyDown = false
-
-      if (isHoldRecording && !isHandsFreeMode) {
-        // IMMEDIATELY tell the renderer to stop capturing audio.
-        // This prevents the 250ms STOP_DELAY from capturing ambient noise
-        // (TV, room sounds, keyboard clicks) after the user releases the key.
-        // The 'stop-capture' command stops PCM data flow to Deepgram but does
-        // NOT trigger transcription processing -- that happens with 'stop'.
-        sendToRenderer('recording-command', 'stop-capture')
-
-        // Delay the full stop to allow double-tap detection
-        stopDelayTimeout = setTimeout(() => {
-          stopDelayTimeout = null
-          if (isHoldRecording && !isHandsFreeMode) {
-            isHoldRecording = false
-            stopForegroundTracking()
-            sendToRenderer('recording-command', 'stop')
-            sendToIndicator('recording-command', 'stop')
-          }
-        }, STOP_DELAY)
-      }
-      // If in hands-free mode, keyup is ignored (recording continues until next tap)
-    }
-  })
-
-  try {
-    uIOhook.start()
-    console.log('[Prattle] uIOhook started successfully — global hotkey active')
-  } catch (err) {
-    console.error('[Prattle] FAILED to start uIOhook:', err)
-    // Notify the renderer so the user knows
-    setTimeout(() => {
-      sendToRenderer('update-status', 'error',
-        'Global hotkey failed to initialize. Try running Prattle as administrator.')
-    }, 3000)
-  }
-}
-
-function createTray() {
-  // Load icon from build directory or use a fallback
-  const iconPath = isDev
-    ? path.join(__dirname, '../build/icon.png')
-    : path.join(process.resourcesPath, 'build', 'icon.png')
-
-  let trayIcon: Electron.NativeImage
-  try {
-    trayIcon = nativeImage.createFromPath(iconPath)
-    // Resize for tray (16x16 on Windows)
-    trayIcon = trayIcon.resize({ width: 16, height: 16 })
-  } catch {
-    // Fallback: create a simple colored square if icon not found
-    trayIcon = nativeImage.createEmpty()
-  }
-
-  tray = new Tray(trayIcon)
-  tray.setToolTip('Prattle — Voice to Text')
-
-  const settings = readJsonFile('settings.json')
-  const startOnLogin = settings.startOnLogin !== false // default true
-
-  const contextMenu = Menu.buildFromTemplate([
-    {
-      label: 'Show Prattle',
-      click: () => {
-        if (mainWindow) {
-          mainWindow.show()
-          mainWindow.focus()
-        } else {
-          createWindow()
-        }
-      }
-    },
-    { type: 'separator' },
-    {
-      label: 'Start on Login',
-      type: 'checkbox',
-      checked: startOnLogin,
-      click: (menuItem) => {
-        const enabled = menuItem.checked
-        app.setLoginItemSettings({ openAtLogin: enabled })
-        const s = readJsonFile('settings.json')
-        s.startOnLogin = enabled
-        writeJsonFile('settings.json', s)
-      }
-    },
-    { type: 'separator' },
-    {
-      label: 'Check for Updates',
-      click: () => {
-        autoUpdater.checkForUpdatesAndNotify()
-      }
-    },
-    { type: 'separator' },
-    {
-      label: 'Quit Prattle',
-      click: () => {
-        isQuitting = true
-        app.quit()
-      }
-    }
-  ])
-
-  tray.setContextMenu(contextMenu)
-
-  // Double-click tray icon → show window
-  tray.on('double-click', () => {
-    if (mainWindow) {
-      mainWindow.show()
-      mainWindow.focus()
-    } else {
-      createWindow()
-    }
-  })
-}
-
-function setupAutoUpdater() {
-  // Don't check for updates in dev mode
-  if (isDev) {
-    console.log('[Prattle] Dev mode — skipping auto-updater')
-    return
-  }
-
-  autoUpdater.autoDownload = true
-  autoUpdater.autoInstallOnAppQuit = true
-
-  autoUpdater.on('checking-for-update', () => {
-    sendToRenderer('update-status', 'checking')
-  })
-
-  autoUpdater.on('update-available', (info) => {
-    sendToRenderer('update-status', 'available', info)
-  })
-
-  autoUpdater.on('update-not-available', () => {
-    sendToRenderer('update-status', 'up-to-date')
-  })
-
-  autoUpdater.on('download-progress', (progress) => {
-    sendToRenderer('update-status', 'downloading', { percent: Math.round(progress.percent) })
-  })
-
-  autoUpdater.on('update-downloaded', (info) => {
-    sendToRenderer('update-status', 'ready', info)
-  })
-
-  autoUpdater.on('error', (err) => {
-    console.error('[Prattle] Update error:', err)
-    sendToRenderer('update-status', 'error', err.message)
-  })
-
-  // Check for updates on startup (after a short delay)
-  setTimeout(() => {
-    autoUpdater.checkForUpdatesAndNotify()
-  }, 5000)
 }
 
 // ---- Single-instance lock ----
-// Prevent multiple Prattle processes from running simultaneously.
-// Duplicate instances create conflicting hotkey listeners and cause erratic behavior.
 const gotTheLock = app.requestSingleInstanceLock()
 
 if (!gotTheLock) {
-  // Another instance is already running — quit immediately
   console.log('[Prattle] Another instance is already running. Focusing existing window.')
   app.quit()
 } else {
-  // When a second instance tries to launch, focus the existing window instead.
-  // On Windows, protocol URLs (prattle://...) arrive here as argv in the second instance.
   app.on('second-instance', (_event, argv) => {
+    const mainWindow = getMainWindow()
     if (mainWindow) {
       if (mainWindow.isMinimized()) mainWindow.restore()
       mainWindow.show()
       mainWindow.focus()
     }
 
-    // Check if the second instance was launched with a prattle:// URL (OAuth callback)
     const oauthUrl = argv.find(arg => arg.startsWith('prattle://'))
     if (oauthUrl) {
       handleOAuthCallback(oauthUrl)
@@ -780,20 +61,7 @@ if (!gotTheLock) {
   })
 }
 
-// Handle OAuth callback URL from custom protocol
-function handleOAuthCallback(url: string) {
-  console.log('[Prattle] OAuth callback received:', url.substring(0, 80) + '...')
-  if (mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.webContents.send('oauth-callback', url)
-    mainWindow.show()
-    mainWindow.focus()
-  } else {
-    // Window not ready yet -- store for later
-    pendingOAuthUrl = url
-  }
-}
-
-// On macOS, protocol URLs arrive via open-url event (not second-instance)
+// On macOS, protocol URLs arrive via open-url event
 app.on('open-url', (event, url) => {
   event.preventDefault()
   if (url.startsWith('prattle://')) {
@@ -805,16 +73,19 @@ app.whenReady().then(() => {
   ensureUserDataDir()
   initializeDefaultData()
 
-  // Check if launched with --hidden flag (auto-start)
+  // Register all IPC handlers before creating windows
+  registerIpcHandlers(isQuittingRef)
+
   const startHidden = process.argv.includes('--hidden')
 
-  createWindow()
+  createWindow(isQuittingRef)
 
   if (startHidden) {
-    mainWindow?.hide()
+    getMainWindow()?.hide()
   }
 
   // If we received an OAuth callback before the window was ready, send it now
+  const mainWindow = getMainWindow()
   if (pendingOAuthUrl && mainWindow) {
     mainWindow.webContents.once('did-finish-load', () => {
       if (pendingOAuthUrl) {
@@ -824,12 +95,16 @@ app.whenReady().then(() => {
     })
   }
 
-  createIndicatorWindow() // Pre-create so it's ready when hotkey fires
-  createTray()
+  createIndicatorWindow()
+  createTray(isQuittingRef)
 
-  // Defer uIOhook startup — the native hook can block the event loop
-  // and cause the app/installer to appear unresponsive during launch
-  setTimeout(() => setupHotkeySystem(), 500)
+  // Defer uIOhook startup to avoid blocking the event loop during launch
+  setTimeout(() => setupHotkeySystem({
+    sendToRenderer,
+    sendToIndicator,
+    showIndicator,
+  }), 500)
+
   setupAutoUpdater()
 
   // Apply auto-start setting
@@ -837,289 +112,24 @@ app.whenReady().then(() => {
   if (settings.startOnLogin !== false) {
     app.setLoginItemSettings({
       openAtLogin: true,
-      args: ['--hidden'] // Start minimized to tray
+      args: ['--hidden']
     })
   }
 
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow()
+    if (BrowserWindow.getAllWindows().length === 0) createWindow(isQuittingRef)
   })
 })
 
 app.on('window-all-closed', () => {
-  // Don't quit — tray keeps the app alive
-  // Only quit when isQuitting is true (from tray "Quit" or app.quit())
+  // Don't quit -- tray keeps the app alive
 })
 
 app.on('before-quit', () => {
-  isQuitting = true
+  isQuittingRef.value = true
 })
 
 app.on('will-quit', () => {
-  try { uIOhook.stop() } catch (_) {}
+  stopHotkeySystem()
   stopPersistentPowerShell()
-})
-
-// Initialize default data files if they don't exist
-function initializeDefaultData() {
-  // Default settings
-  if (!fs.existsSync(getDataFilePath('settings.json'))) {
-    writeJsonFile('settings.json', {
-      speechProvider: 'deepgram',
-      llmProvider: 'claude',
-      apiKeys: {},
-      currentModeIndex: 0,
-      customPrompts: {},
-      fontSize: 16,
-      theme: 'dark',
-      micGain: 100,
-      hotkey: 'RightAlt',
-      startOnLogin: true,
-      trainingEnabled: false,
-    })
-  } else {
-    // Migrate existing settings to new format
-    const settings = readJsonFile('settings.json')
-    let changed = false
-
-    // Remove old fields
-    if ('activePlatform' in settings) {
-      delete settings.activePlatform
-      changed = true
-    }
-    if ('autoProcess' in settings) {
-      delete settings.autoProcess
-      changed = true
-    }
-    if ('globalRules' in settings) {
-      delete settings.globalRules
-      changed = true
-    }
-    if ('learningMode' in settings) {
-      delete settings.learningMode
-      changed = true
-    }
-
-    // Add new fields
-    if (settings.currentModeIndex === undefined) {
-      settings.currentModeIndex = 0
-      changed = true
-    }
-    if (settings.customPrompts === undefined) {
-      settings.customPrompts = {}
-      changed = true
-    }
-    if (settings.hotkey === undefined || settings.hotkey === 'Ctrl+Shift+Space') {
-      settings.hotkey = 'RightAlt'
-      changed = true
-    }
-    if (settings.micGain === undefined) {
-      settings.micGain = 100
-      changed = true
-    }
-    if (settings.trainingEnabled === undefined) {
-      settings.trainingEnabled = false
-      changed = true
-    }
-    if (settings.startOnLogin === undefined) {
-      settings.startOnLogin = true
-      changed = true
-    }
-
-    if (changed) writeJsonFile('settings.json', settings)
-  }
-
-  // Default dictionary
-  if (!fs.existsSync(getDataFilePath('dictionary.json'))) {
-    writeJsonFile('dictionary.json', {
-      replacements: {},
-    })
-  }
-
-  // Default learned patterns
-  if (!fs.existsSync(getDataFilePath('learned-patterns.json'))) {
-    writeJsonFile('learned-patterns.json', {
-      patterns: [],
-    })
-  }
-}
-
-// ---- IPC Handlers ----
-
-// Settings
-ipcMain.handle('get-settings', () => readJsonFile('settings.json'))
-ipcMain.handle('save-settings', (_, settings) => {
-  writeJsonFile('settings.json', settings)
-  return true
-})
-
-// Dictionary
-ipcMain.handle('get-dictionary', () => readJsonFile('dictionary.json'))
-ipcMain.handle('save-dictionary', (_, dictionary) => {
-  writeJsonFile('dictionary.json', dictionary)
-  return true
-})
-
-// Learned patterns
-ipcMain.handle('get-learned-patterns', () => readJsonFile('learned-patterns.json'))
-ipcMain.handle('save-learned-patterns', (_, patterns) => {
-  writeJsonFile('learned-patterns.json', patterns)
-  return true
-})
-
-// Get user data path (for display in settings)
-ipcMain.handle('get-user-data-path', () => userDataPath)
-
-// Paste to external window (from main window -- minimizes Prattle)
-ipcMain.handle('paste-to-external', async (_, text: string) => {
-  if (!mainWindow) return false
-
-  try {
-    // 1. Copy text to clipboard and force sync
-    clipboard.writeText(text)
-    clipboard.readText() // forces clipboard propagation to complete
-
-    // 2. Minimize Prattle so previous window regains focus
-    mainWindow.minimize()
-
-    // 3. Wait for focus to shift (500ms gives the OS time to activate the previous window)
-    await new Promise(resolve => setTimeout(resolve, 500))
-
-    // 4. Simulate Ctrl+V via native helper (works in Chrome and all apps)
-    await new Promise<void>((resolve, reject) => {
-      execFile(pasteHelperPath, (error) => {
-        if (error) reject(error)
-        else resolve()
-      })
-    })
-
-    // 5. Brief delay then restore
-    await new Promise(resolve => setTimeout(resolve, 400))
-    mainWindow.restore()
-    mainWindow.focus()
-
-    return true
-  } catch (error) {
-    console.error('Paste to external failed:', error)
-    // Restore window even on failure
-    if (mainWindow) {
-      mainWindow.restore()
-      mainWindow.focus()
-    }
-    return false
-  }
-})
-
-// Auto-type text to active field (from hotkey flow -- does NOT minimize/restore)
-// Uses a pre-compiled C++ helper (.exe) that calls Win32 SendInput with hardware
-// scan codes (KEYEVENTF_SCANCODE). This is the only approach that works in Chrome,
-// because Chrome ignores keybd_event and rejects SendInput from Electron/PowerShell
-// processes due to struct misalignment and focus-stealing issues.
-ipcMain.handle('auto-type-text', async (_, text: string) => {
-  try {
-    // 1. Copy text to clipboard and force sync (ChatGPT recommendation)
-    clipboard.writeText(text)
-    clipboard.readText() // forces clipboard propagation to complete
-
-    // 2. Brief delay for clipboard to settle
-    await new Promise(resolve => setTimeout(resolve, 50))
-
-    // 3. Call the native paste helper -- it handles its own 50ms focus delay
-    await new Promise<void>((resolve, reject) => {
-      execFile(pasteHelperPath, (error) => {
-        if (error) reject(error)
-        else resolve()
-      })
-    })
-
-    return true
-  } catch (error) {
-    console.error('Auto-type failed:', error)
-    return false
-  }
-})
-
-// Track whether there's committed text (for rewrite mode detection)
-ipcMain.on('has-committed-text', (_, hasText: boolean) => {
-  hasLastCommittedText = hasText
-})
-
-// Indicator visibility control from renderer
-ipcMain.on('hide-indicator', () => {
-  hideIndicator()
-})
-
-// Auto-start on login
-ipcMain.handle('set-start-on-login', (_, enabled: boolean) => {
-  app.setLoginItemSettings({
-    openAtLogin: enabled,
-    args: enabled ? ['--hidden'] : []
-  })
-  return true
-})
-
-ipcMain.handle('get-start-on-login', () => {
-  const loginSettings = app.getLoginItemSettings()
-  return loginSettings.openAtLogin
-})
-
-// Auto-updater
-ipcMain.on('check-for-updates', () => {
-  if (isDev) {
-    sendToRenderer('update-status', 'dev-mode')
-    return
-  }
-  autoUpdater.checkForUpdatesAndNotify()
-})
-
-ipcMain.on('restart-to-update', () => {
-  isQuitting = true
-  // Stop the native keyboard hook before restarting — it holds a thread
-  // that can block the quit/restart cycle
-  try { uIOhook.stop() } catch (_) {}
-  autoUpdater.quitAndInstall(false, true) // isSilent=false, isForceRunAfter=true
-})
-
-// App version
-ipcMain.handle('get-app-version', () => {
-  return app.getVersion()
-})
-
-// Open external URL (for Stripe checkout, portal, etc.)
-ipcMain.handle('open-external-url', (_, url: string) => {
-  shell.openExternal(url)
-  return true
-})
-
-// Update hotkey — re-parse the new hotkey string so it takes effect immediately
-ipcMain.handle('update-hotkey', (_, hotkey: string) => {
-  activeHotkey = parseHotkeyString(hotkey)
-  // Reset state to avoid stuck keys
-  triggerKeyDown = false
-  isHoldRecording = false
-  isHandsFreeMode = false
-  console.log(`[Prattle] Hotkey updated to: ${hotkey} (keycode ${activeHotkey.triggerKeycode})`)
-  return true
-})
-
-// File dialog for export/import
-ipcMain.handle('show-save-dialog', async (_, options) => {
-  if (!mainWindow) return null
-  const result = await dialog.showSaveDialog(mainWindow, options)
-  return result
-})
-
-ipcMain.handle('show-open-dialog', async (_, options) => {
-  if (!mainWindow) return null
-  const result = await dialog.showOpenDialog(mainWindow, options)
-  return result
-})
-
-ipcMain.handle('write-file', (_, filePath: string, content: string) => {
-  fs.writeFileSync(filePath, content, 'utf-8')
-  return true
-})
-
-ipcMain.handle('read-file', (_, filePath: string) => {
-  return fs.readFileSync(filePath, 'utf-8')
 })

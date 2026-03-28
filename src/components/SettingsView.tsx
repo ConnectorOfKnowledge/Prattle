@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { useAppStore } from '../stores/appStore'
 import type { Settings } from '../types'
 import { HiFolderOpen } from 'react-icons/hi2'
+import Toggle from './Toggle'
 
 export default function SettingsView() {
   const { settings, saveSettingsToFile } = useAppStore()
@@ -25,7 +26,13 @@ export default function SettingsView() {
     return cleanup
   }, [settings])
 
-  if (!localSettings) return null
+  if (!localSettings) {
+    return (
+      <div className="flex items-center justify-center h-full">
+        <div className="w-8 h-8 border-2 border-cd-accent border-t-transparent rounded-full animate-spin" />
+      </div>
+    )
+  }
 
   const updateSetting = <K extends keyof Settings>(key: K, value: Settings[K]) => {
     setLocalSettings(prev => prev ? { ...prev, [key]: value } : prev)
@@ -48,7 +55,7 @@ export default function SettingsView() {
       <h2 className="text-lg font-semibold text-cd-text">Settings</h2>
 
       {/* Service Info */}
-      <div className="bg-cd-card rounded-2xl border border-white/5 p-5">
+      <div className="card">
         <h3 className="font-medium text-cd-text mb-2">Speech & AI Processing</h3>
         <p className="text-sm text-cd-subtle">
           Prattle uses Deepgram Nova-3 for speech recognition and AI models for text processing.
@@ -57,7 +64,7 @@ export default function SettingsView() {
       </div>
 
       {/* Preferences */}
-      <div className="bg-cd-card rounded-2xl border border-white/5 p-5">
+      <div className="card">
         <h3 className="font-medium text-cd-text mb-3">Preferences</h3>
 
         <div className="space-y-4">
@@ -115,7 +122,7 @@ export default function SettingsView() {
       </div>
 
       {/* Global Hotkey */}
-      <div className="bg-cd-card rounded-2xl border border-white/5 p-5">
+      <div className="card">
         <h3 className="font-medium text-cd-text mb-3">Global Hotkey</h3>
         <p className="text-xs text-cd-subtle mb-3">
           <strong>Hold</strong> to record, release to process and auto-type.
@@ -126,7 +133,7 @@ export default function SettingsView() {
           <select
             value={localSettings.hotkey}
             onChange={(e) => updateSetting('hotkey', e.target.value)}
-            className="flex-1 px-4 py-2.5 rounded-xl border border-white/10 bg-cd-bg text-cd-text focus:outline-none focus:ring-2 focus:ring-cd-accent/50 text-sm font-mono"
+            className="input-field flex-1 text-sm font-mono"
           >
             <option value="RightAlt">Right Alt</option>
             <option value="F2">F2</option>
@@ -145,54 +152,43 @@ export default function SettingsView() {
       </div>
 
       {/* Startup */}
-      <div className="bg-cd-card rounded-2xl border border-white/5 p-5">
+      <div className="card">
         <h3 className="font-medium text-cd-text mb-3">Startup</h3>
         <label className="flex items-center justify-between cursor-pointer">
           <div>
             <div className="text-sm font-medium text-cd-text">Start on Windows login</div>
             <div className="text-xs text-cd-subtle">Prattle launches minimized to the system tray when you log in</div>
           </div>
-          <div className="relative">
-            <input
-              type="checkbox"
-              checked={localSettings.startOnLogin !== false}
-              onChange={(e) => {
-                updateSetting('startOnLogin', e.target.checked)
-                window.electronAPI.setStartOnLogin(e.target.checked)
-              }}
-              className="sr-only"
-            />
-            <div className={`w-11 h-6 rounded-full transition-colors ${localSettings.startOnLogin !== false ? 'bg-cd-accent' : 'bg-gray-600'}`}>
-              <div className={`w-5 h-5 rounded-full bg-white shadow transform transition-transform mt-0.5 ${localSettings.startOnLogin !== false ? 'translate-x-5.5 ml-[22px]' : 'translate-x-0.5 ml-[2px]'}`}></div>
-            </div>
-          </div>
+          <Toggle
+            checked={localSettings.startOnLogin !== false}
+            onChange={(checked) => {
+              updateSetting('startOnLogin', checked)
+              window.electronAPI.setStartOnLogin(checked)
+            }}
+            label="Start on Windows login"
+          />
         </label>
       </div>
 
       {/* Training Mode */}
-      <div className="bg-cd-card rounded-2xl border border-white/5 p-5">
+      <div className="card">
         <h3 className="font-medium text-cd-text mb-3">Training</h3>
         <label className="flex items-center justify-between cursor-pointer">
           <div>
             <div className="text-sm font-medium text-cd-text">Enable training mode</div>
             <div className="text-xs text-cd-subtle">Shows the Train toggle on the dictation screen and the Learning tab in navigation. Use this to teach Prattle your writing preferences.</div>
           </div>
-          <div className="relative">
-            <input
-              type="checkbox"
-              checked={localSettings.trainingEnabled === true}
-              onChange={(e) => updateSetting('trainingEnabled', e.target.checked)}
-              className="sr-only"
-            />
-            <div className={`w-11 h-6 rounded-full transition-colors ${localSettings.trainingEnabled ? 'bg-amber-500' : 'bg-gray-600'}`}>
-              <div className={`w-5 h-5 rounded-full bg-white shadow transform transition-transform mt-0.5 ${localSettings.trainingEnabled ? 'translate-x-5.5 ml-[22px]' : 'translate-x-0.5 ml-[2px]'}`}></div>
-            </div>
-          </div>
+          <Toggle
+            checked={localSettings.trainingEnabled === true}
+            onChange={(checked) => updateSetting('trainingEnabled', checked)}
+            activeColor="bg-amber-500"
+            label="Enable training mode"
+          />
         </label>
       </div>
 
       {/* Data Location */}
-      <div className="bg-cd-card rounded-2xl border border-white/5 p-5">
+      <div className="card">
         <h3 className="font-medium text-cd-text mb-2">Data Storage</h3>
         <div className="flex items-center gap-2 text-sm text-cd-subtle">
           <HiFolderOpen className="w-4 h-4" />
@@ -204,7 +200,7 @@ export default function SettingsView() {
       </div>
 
       {/* About & Updates */}
-      <div className="bg-cd-card rounded-2xl border border-white/5 p-5">
+      <div className="card">
         <h3 className="font-medium text-cd-text mb-3">About</h3>
         <div className="flex items-center justify-between mb-3">
           <div>
@@ -221,7 +217,7 @@ export default function SettingsView() {
               }
             }}
             disabled={updateStatus === 'checking' || updateStatus === 'downloading'}
-            className={`px-4 py-2 rounded-xl text-sm font-medium transition-all disabled:opacity-50 ${
+            className={`px-4 py-2 rounded-xl text-sm font-medium transition-all disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-cd-accent/50 ${
               updateStatus === 'ready'
                 ? 'bg-green-600 hover:bg-green-500 text-white'
                 : 'bg-cd-bg border border-white/10 text-cd-text hover:bg-white/10'
@@ -250,11 +246,7 @@ export default function SettingsView() {
       <div className="flex justify-end pb-4">
         <button
           onClick={handleSave}
-          className={`px-6 py-2.5 rounded-xl font-medium transition-all duration-200 shadow-sm
-            ${saved
-              ? 'bg-green-500 text-white'
-              : 'bg-cd-accent hover:bg-cd-accent/80 text-white hover:shadow-md'
-            }`}
+          className={`btn-primary ${saved ? 'bg-green-500 hover:bg-green-500' : ''}`}
         >
           {saved ? 'Saved!' : 'Save Settings'}
         </button>
