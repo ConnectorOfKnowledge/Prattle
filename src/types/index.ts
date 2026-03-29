@@ -76,6 +76,15 @@ export interface ChatMessage {
   content: string
 }
 
+export interface HistoryEntry {
+  id: string
+  rawText: string
+  processedText: string
+  mode: string
+  durationMs: number
+  createdAt: string  // ISO string
+}
+
 // Electron API exposed via preload
 declare global {
   interface Window {
@@ -111,6 +120,10 @@ declare global {
       openExternalUrl: (url: string) => Promise<boolean>
       // OAuth callback (from custom protocol handler)
       onOAuthCallback: (callback: (url: string) => void) => () => void
+      // History
+      getHistory: () => Promise<HistoryEntry[]>
+      addHistoryEntry: (entry: HistoryEntry) => Promise<boolean>
+      clearHistory: () => Promise<boolean>
     }
   }
 }

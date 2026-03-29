@@ -5,6 +5,7 @@ import { deepgramStreamService } from '../services/deepgramStreamService'
 import { buildProcessPrompt, buildRewritePrompt } from '../services/llmService'
 import { transcribeViaProxy, processTextViaProxy, getStreamToken } from '../services/proxyService'
 import { DICTATION_MODES } from '../constants/modes'
+import { v4 as uuidv4 } from 'uuid'
 
 const MIN_RECORDING_MS = 400
 
@@ -259,6 +260,16 @@ export function useRecording({ trainingMode }: UseRecordingOptions) {
           await window.electronAPI.autoTypeText(rewritten)
         }
 
+        // Save to history
+        window.electronAPI.addHistoryEntry({
+          id: uuidv4(),
+          rawText: transcription,
+          processedText: rewritten,
+          mode: 'Rewrite',
+          durationMs: recordingDurationMs,
+          createdAt: new Date().toISOString(),
+        }).catch(() => {})
+
         setStatusMessage('Ready')
       } else {
         setRawText(transcription)
@@ -288,6 +299,17 @@ export function useRecording({ trainingMode }: UseRecordingOptions) {
         if (wasHotkey) {
           await window.electronAPI.autoTypeText(finalText + ' ')
         }
+
+        // Save to history
+        const modeName = DICTATION_MODES[modeIndex]?.name || `Mode ${modeIndex}`
+        window.electronAPI.addHistoryEntry({
+          id: uuidv4(),
+          rawText: transcription,
+          processedText: finalText,
+          mode: modeName,
+          durationMs: recordingDurationMs,
+          createdAt: new Date().toISOString(),
+        }).catch(() => {})
 
         setStatusMessage(trainingMode ? 'Edit the text above, then hit Save Training' : 'Ready')
       }

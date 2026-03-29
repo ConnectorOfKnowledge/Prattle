@@ -153,6 +153,25 @@ export function registerIpcHandlers(isQuittingRef: { value: boolean }): void {
     return true
   })
 
+  // History (max 100 entries, stored in history.json)
+  const HISTORY_MAX = 100
+  ipcMain.handle('get-history', () => {
+    const data = readJsonFile('history.json', { entries: [] })
+    return (data.entries as unknown[]) || []
+  })
+  ipcMain.handle('add-history-entry', (_, entry: Record<string, unknown>) => {
+    const data = readJsonFile('history.json', { entries: [] })
+    const entries = ((data.entries as unknown[]) || []) as Record<string, unknown>[]
+    entries.unshift(entry) // newest first
+    if (entries.length > HISTORY_MAX) entries.length = HISTORY_MAX
+    writeJsonFile('history.json', { entries })
+    return true
+  })
+  ipcMain.handle('clear-history', () => {
+    writeJsonFile('history.json', { entries: [] })
+    return true
+  })
+
   // File dialog for export/import
   ipcMain.handle('show-save-dialog', async (_, options: Electron.SaveDialogOptions) => {
     const mainWindow = getMainWindow()

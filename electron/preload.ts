@@ -71,6 +71,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // External URL (for Stripe checkout, portal, etc.)
   openExternalUrl: (url: string) => ipcRenderer.invoke('open-external-url', url),
 
+  // History
+  getHistory: () => ipcRenderer.invoke('get-history'),
+  addHistoryEntry: (entry: Record<string, unknown>) => ipcRenderer.invoke('add-history-entry', entry),
+  clearHistory: () => ipcRenderer.invoke('clear-history'),
+
   // OAuth callback listener (from custom protocol handler)
   onOAuthCallback: (callback: (url: string) => void) => {
     const handler = (_event: IpcRendererEvent, url: string) => callback(url)

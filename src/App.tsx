@@ -5,6 +5,7 @@ import SettingsView from './components/SettingsView'
 import DictionaryView from './components/DictionaryView'
 import ModesView from './components/ModesView'
 import LearningView from './components/LearningView'
+import HistoryView from './components/HistoryView'
 import AuthView from './components/AuthView'
 import AccountView from './components/AccountView'
 import Header from './components/Header'
@@ -34,6 +35,7 @@ const views: Record<string, React.ComponentType> = {
   settings: SettingsView,
   dictionary: DictionaryView,
   learning: LearningView,
+  history: HistoryView,
   account: AccountView,
 }
 

@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import { useAppStore } from '../stores/appStore'
-import { HiCog6Tooth, HiBookOpen, HiMicrophone, HiAdjustmentsHorizontal, HiUser, HiSparkles, HiBars3 } from 'react-icons/hi2'
+import { HiCog6Tooth, HiBookOpen, HiMicrophone, HiAdjustmentsHorizontal, HiUser, HiSparkles, HiBars3, HiDocumentText } from 'react-icons/hi2'
 
 export default function Header() {
   const { currentView, setCurrentView, user, settings } = useAppStore()
@@ -10,6 +10,7 @@ export default function Header() {
   const navItems = [
     { id: 'main' as const, label: 'Dictate', icon: HiMicrophone },
     { id: 'modes' as const, label: 'Modes', icon: HiAdjustmentsHorizontal },
+    { id: 'history' as const, label: 'History', icon: HiDocumentText },
     { id: 'dictionary' as const, label: 'Dictionary', icon: HiBookOpen },
     ...(settings?.trainingEnabled ? [{ id: 'learning' as const, label: 'Learning', icon: HiSparkles }] : []),
     { id: 'settings' as const, label: 'Settings', icon: HiCog6Tooth },
