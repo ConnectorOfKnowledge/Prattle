@@ -18,7 +18,13 @@ export class SpeechService {
   private visualizationStream: MediaStream | null = null
 
   // Audio energy tracking -- used to detect silence/noise-only recordings
-  private energySamples: number[] = []
+  // Peak and average are tracked incrementally to avoid unbounded array growth.
+  // Previously, every 50ms sample was pushed to an array that grew indefinitely
+  // during long recordings (36,000 entries for 30 min). getAudioStats() then
+  // called Math.max(...energySamples) which risks a stack overflow on large arrays.
+  private energySampleCount = 0
+  private energySum = 0
+  private energyPeak = 0
   private energyTrackingInterval: ReturnType<typeof setInterval> | null = null
 
   // Optional callback for streaming audio chunks to an external service (e.g. Deepgram WS)
@@ -26,6 +32,7 @@ export class SpeechService {
 
   // Raw PCM capture for WebSocket streaming (taps into the AudioContext chain)
   private pcmProcessor: ScriptProcessorNode | null = null
+  private pcmSilentNode: GainNode | null = null
   private onPcmData: ((buffer: ArrayBuffer) => void) | null = null
 
   // Resource tracking for leak prevention
@@ -261,21 +268,34 @@ export class SpeechService {
     // ScriptProcessorNode requires connection to destination to process audio,
     // but we route through a silent GainNode (gain = 0) to avoid playing mic
     // input through speakers.
-    const silentNode = this.audioContext.createGain()
-    silentNode.gain.value = 0
+    //
+    // IMPORTANT: Reuse the silent node across recordings. Previously, a new
+    // GainNode was created every startPcmCapture() call but never disconnected
+    // in stopPcmCapture(). Over many recording cycles, these orphaned nodes
+    // accumulated in the audio graph, degrading audio quality and leaking memory.
+    if (!this.pcmSilentNode) {
+      this.pcmSilentNode = this.audioContext.createGain()
+      this.pcmSilentNode.gain.value = 0
+    }
     this.analyserNode.connect(this.pcmProcessor)
-    this.pcmProcessor.connect(silentNode)
-    silentNode.connect(this.audioContext.destination)
+    this.pcmProcessor.connect(this.pcmSilentNode)
+    this.pcmSilentNode.connect(this.audioContext.destination)
 
     return this.audioContext.sampleRate
   }
 
-  // Stop PCM capture and disconnect the processor node
+  // Stop PCM capture and disconnect the processor node + silent output node
   stopPcmCapture(): void {
     this.onPcmData = null
     if (this.pcmProcessor) {
       this.pcmProcessor.disconnect()
       this.pcmProcessor = null
+    }
+    // Disconnect the silent node from destination to fully break the audio chain.
+    // The node itself is kept alive for reuse, but disconnecting it prevents
+    // accumulation of connected paths to the AudioContext destination.
+    if (this.pcmSilentNode) {
+      try { this.pcmSilentNode.disconnect() } catch { /* already disconnected */ }
     }
   }
 
@@ -290,7 +310,9 @@ export class SpeechService {
   // Uses setInterval instead of requestAnimationFrame so it works in
   // hidden/background windows (rAF pauses when window isn't visible)
   private startEnergyTracking(): void {
-    this.energySamples = []
+    this.energySampleCount = 0
+    this.energySum = 0
+    this.energyPeak = 0
     if (!this.analyserNode) return
 
     const bufferLength = this.analyserNode.frequencyBinCount
@@ -307,7 +329,11 @@ export class SpeechService {
         sum += normalized * normalized
       }
       const rms = Math.sqrt(sum / bufferLength)
-      this.energySamples.push(rms)
+
+      // Track incrementally instead of pushing to an unbounded array
+      this.energySampleCount++
+      this.energySum += rms
+      if (rms > this.energyPeak) this.energyPeak = rms
     }, 50) // Sample every 50ms
   }
 
@@ -321,12 +347,12 @@ export class SpeechService {
 
   // Get audio stats from the recording session
   getAudioStats(): { peakEnergy: number; avgEnergy: number; speechDetected: boolean } {
-    if (this.energySamples.length === 0) {
+    if (this.energySampleCount === 0) {
       return { peakEnergy: 0, avgEnergy: 0, speechDetected: false }
     }
 
-    const peak = Math.max(...this.energySamples)
-    const avg = this.energySamples.reduce((a, b) => a + b, 0) / this.energySamples.length
+    const peak = this.energyPeak
+    const avg = this.energySum / this.energySampleCount
 
     // Speech threshold: average RMS > 0.02 and peak > 0.05
     // These are conservative -- even quiet speech should clear this
@@ -434,6 +460,10 @@ export class SpeechService {
     if (this.analyserNode) {
       try { this.analyserNode.disconnect() } catch { /* already disconnected */ }
       this.analyserNode = null
+    }
+    if (this.pcmSilentNode) {
+      try { this.pcmSilentNode.disconnect() } catch { /* already disconnected */ }
+      this.pcmSilentNode = null
     }
     if (this.audioContext && this.audioContext.state !== 'closed') {
       this.audioContext.close().catch(() => {})
